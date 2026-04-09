@@ -226,30 +226,21 @@
   50%       { opacity: 0.3; }
 }
 
-/* Code editor */
+/* Code editor — Monaco fills wrapper */
 .editorWrap {
   flex: 1;
   overflow: hidden;
   position: relative;
-  display: flex;
-  flex-direction: column;
 }
 
-/* Let CodeMirror fill the wrapper */
-.editorWrap :global(.cm-editor) {
-  flex: 1;
-  height: 100%;
-  overflow: auto;
+/* Monaco container fills 100% */
+.editorWrap > :global(*) {
+  height: 100% !important;
 }
 
-.editorWrap :global(.cm-scroller) {
-  overflow: auto;
-  font-family: 'Fira Code', 'Cascadia Code', 'JetBrains Mono', monospace;
-  line-height: 1.65;
-}
-
-.editorWrap :global(.cm-lineWrapping) {
-  word-break: break-all;
+/* Slightly thinner scrollbar inside Monaco */
+.editorWrap :global(.monaco-scrollable-element > .scrollbar) {
+  width: 6px !important;
 }
 
 /* Preview iframe */

@@ -6,56 +6,39 @@ import dynamic from 'next/dynamic';
 import styles from './page.module.css';
 import { getTemplateById } from '@/lib/templates';
 
-// CodeMirror — loaded client-side only (no SSR)
-const CodeMirror = dynamic(() => import('@uiw/react-codemirror'), { ssr: false });
+// Monaco Editor — loaded client-side only (no SSR)
+const MonacoEditor = dynamic(() => import('@monaco-editor/react'), { ssr: false });
 
-// Detect language extension from code content
-async function getLangExtension(src: string) {
+/** Detect Monaco language from code content */
+function detectLanguage(src: string): string {
   const s = src.trimStart();
-  if (s.startsWith('<!') || s.startsWith('<html') || /<(div|p|span|head|body)/i.test(s)) {
-    const { html } = await import('@codemirror/lang-html');
-    return html({ matchClosingTags: true, autoCloseTags: true });
-  }
-  if (s.startsWith('{') || s.startsWith('[') || /^(const|let|var|function|import|export|class)/.test(s)) {
-    const { javascript } = await import('@codemirror/lang-javascript');
-    return javascript({ jsx: true, typescript: true });
-  }
-  const { css } = await import('@codemirror/lang-css');
-  return css();
+  if (s.startsWith('<!') || s.startsWith('<html') || /<(div|p|span|head|body|script|style)/i.test(s)) return 'html';
+  if (s.startsWith('{') || s.startsWith('[')) return 'json';
+  if (/^(const|let|var|function|import|export|class|async|interface|type)/.test(s)) return 'typescript';
+  if (/^[a-z#.*:[]/i.test(s) && s.includes('{')) return 'css';
+  return 'html';
 }
 
-function CodeMirrorEditor({ code, onChange }: { code: string; onChange: (v: string) => void }) {
-  const [extensions, setExtensions] = useState<unknown[]>([]);
-  const [theme, setTheme] = useState<unknown>(undefined);
-
-  useEffect(() => {
-    getLangExtension(code).then(ext => setExtensions([ext]));
-    import('@codemirror/theme-one-dark').then(m => setTheme(m.oneDark));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // detect once on mount
-
-  return (
-    <CodeMirror
-      value={code}
-      height="100%"
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      theme={theme as any}
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      extensions={extensions as any[]}
-      onChange={onChange}
-      basicSetup={{
-        lineNumbers:      true,
-        foldGutter:       true,
-        bracketMatching:  true,
-        closeBrackets:    true,
-        autocompletion:   true,
-        highlightActiveLine: true,
-        lineWrapping:     true,
-      }}
-      style={{ height: '100%', fontSize: '0.8rem' }}
-    />
-  );
-}
+const MONACO_OPTIONS = {
+  fontSize:             13,
+  fontFamily:           "'Fira Code', 'Cascadia Code', 'JetBrains Mono', 'SF Mono', monospace",
+  fontLigatures:        true,
+  minimap:              { enabled: false },
+  scrollBeyondLastLine: false,
+  automaticLayout:      true,
+  wordWrap:             'on' as const,
+  lineNumbers:          'on' as const,
+  folding:              true,
+  bracketPairColorization: { enabled: true },
+  formatOnPaste:        true,
+  formatOnType:         true,
+  tabSize:              2,
+  smoothScrolling:      true,
+  cursorBlinking:       'smooth' as const,
+  renderLineHighlight:  'all' as const,
+  scrollbar:            { verticalScrollbarSize: 6, horizontalScrollbarSize: 6 },
+  padding:              { top: 12 },
+};
 
 interface ChatMessage { role: 'user' | 'ai' | 'status'; text: string; }
 type SaveStatus = 'saved' | 'saving' | 'unsaved';
@@ -315,7 +298,14 @@ export default function VibePage({ params }: { params: Promise<{ id: string }> }
 
         {rightTab === 'code' && (
           <div className={styles.editorWrap}>
-            <CodeMirrorEditor code={code} onChange={(v) => { setCode(v); setCodeChanged(true); }} />
+            <MonacoEditor
+              height="100%"
+              language={detectLanguage(code)}
+              value={code}
+              theme="vs-dark"
+              options={MONACO_OPTIONS}
+              onChange={(v) => { setCode(v ?? ''); setCodeChanged(true); }}
+            />
           </div>
         )}
 
