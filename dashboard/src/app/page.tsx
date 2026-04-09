@@ -10,9 +10,26 @@ interface WorkerData {
   name: string;
   url: string;
   status: string;
-  requests: string;
-  latency: string;
   templateId?: string;
+  updatedAt?: string;
+  deployedAt?: string;
+}
+
+interface DashStats {
+  totalWorkers: number;
+  activeWorkers: number;
+  draftWorkers: number;
+}
+
+/** Format ISO date to relative time in Chinese */
+function relativeTime(iso?: string): string {
+  if (!iso) return '—';
+  const diff = Date.now() - new Date(iso).getTime();
+  if (diff < 60_000)          return '刚刚';
+  if (diff < 3_600_000)       return `${Math.floor(diff / 60_000)} 分钟前`;
+  if (diff < 86_400_000)      return `${Math.floor(diff / 3_600_000)} 小时前`;
+  if (diff < 86_400_000 * 30) return `${Math.floor(diff / 86_400_000)} 天前`;
+  return new Date(iso).toLocaleDateString('zh-CN');
 }
 
 type ImportTab = 'upload' | 'git';
@@ -85,6 +102,7 @@ async function fetchGitLabFiles(owner: string, repo: string, branch: string, sub
 export default function Home() {
   const router = useRouter();
   const [workers, setWorkers] = useState<WorkerData[]>([]);
+  const [stats,   setStats]   = useState<DashStats>({ totalWorkers: 0, activeWorkers: 0, draftWorkers: 0 });
   const [showModal, setShowModal] = useState(false);
   const [modalTab, setModalTab] = useState<'templates' | 'import'>('templates');
   const [importTab, setImportTab] = useState<ImportTab>('upload');
@@ -102,6 +120,7 @@ export default function Home() {
       .then(res => res.json())
       .then(data => {
         if (data.workers) setWorkers(data.workers);
+        if (data.stats)   setStats(data.stats);
       })
       .catch(err => console.error("Failed to fetch workers:", err));
   };
@@ -242,19 +261,19 @@ export default function Home() {
 
       <div className={styles.statsGrid}>
         <div className={`glass-card animate-fade-in`} style={{ animationDelay: '0.3s' }}>
-          <h3>总请求数</h3>
-          <div className={styles.statValue}>240 万</div>
-          <div className={styles.statTrend}>↑ 12% 较上周相比</div>
+          <h3>总项目数</h3>
+          <div className={styles.statValue}>{stats.totalWorkers} 个</div>
+          <div className={styles.statTrend}>{stats.activeWorkers} 已发布 · {stats.draftWorkers} 草稿</div>
         </div>
         <div className={`glass-card animate-fade-in`} style={{ animationDelay: '0.4s' }}>
-          <h3>边缘计算耗时</h3>
-          <div className={styles.statValue}>3,420 秒</div>
-          <div className={styles.statTrend}>↑ 4% 较上周相比</div>
+          <h3>已发布应用</h3>
+          <div className={styles.statValue}>{stats.activeWorkers} 个</div>
+          <div className={styles.statTrend}>{stats.activeWorkers > 0 ? '线上运行中' : '暂无已发布应用'}</div>
         </div>
         <div className={`glass-card animate-fade-in`} style={{ animationDelay: '0.5s' }}>
-          <h3>活跃应用</h3>
-          <div className={styles.statValue}>12 个</div>
-          <div className={styles.statTrend}>2 个正在部署中</div>
+          <h3>草稿项目</h3>
+          <div className={styles.statValue}>{stats.draftWorkers} 个</div>
+          <div className={styles.statTrend}>{stats.draftWorkers > 0 ? '点击卡片继续编辑' : '暂无草稿'}</div>
         </div>
       </div>
 
@@ -271,33 +290,29 @@ export default function Home() {
               >
                 <div className={styles.workerHeader}>
                   <h3>{worker.name}</h3>
-                  {isDraft ? (
-                    <span className={styles.draftBadge}>草稿</span>
-                  ) : (
-                    <div className={styles.metrics}>
-                      <span>~{worker.latency}</span>
-                      <span>{worker.requests} 次</span>
-                    </div>
-                  )}
+                  {isDraft
+                    ? <span className={styles.draftBadge}>草稿</span>
+                    : <span className={styles.activeBadge}>已发布</span>}
                 </div>
                 <span className={styles.workerUrl}>
                   {isDraft
-                    ? (worker.templateId ? `模板：${TEMPLATES.find(t => t.id === worker.templateId)?.name ?? worker.templateId}` : '空白项目')
+                    ? (worker.templateId
+                        ? `模板：${TEMPLATES.find(t => t.id === worker.templateId)?.name ?? worker.templateId}`
+                        : '空白项目')
                     : worker.url}
                 </span>
                 <div className={styles.workerStatus}>
                   {isDraft ? (
-                    <>
-                      <span className={styles.editHint}>✏️ 点击继续编辑</span>
-                    </>
+                    <span className={styles.editHint}>✏️ 点击继续编辑</span>
                   ) : (
                     <>
                       <span className={`status-dot ${worker.status}`}></span>
-                      <span style={{ textTransform: 'capitalize', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
-                        {worker.status === 'active' ? '运行中' : worker.status === 'deploying' ? '部署中' : '已暂停'}
-                      </span>
+                      <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>运行中</span>
                     </>
                   )}
+                  <span style={{ marginLeft: 'auto', fontSize: '0.78rem', color: 'var(--text-secondary)', opacity: 0.6 }}>
+                    {relativeTime(worker.updatedAt || worker.deployedAt)}
+                  </span>
                 </div>
               </div>
             </Link>

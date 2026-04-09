@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const TableStore = require('tablestore') as any;
 
+const PUBLIC_DOMAIN = 'neowow.studio';
 const CF_PROXY      = 'https://neo-proxy.feifeixp.workers.dev';
 const PIPELINE_URL  = process.env.DEPLOY_PIPELINE_URL || 'http://localhost:8081';
 
@@ -18,10 +19,10 @@ if (process.env.ALIBABA_CLOUD_ACCESS_KEY_ID && process.env.TABLESTORE_ENDPOINT) 
   });
 }
 
-/** Build the public-facing URL for a worker */
+/** Build the public-facing URL for a worker (subdomain format) */
 function workerPublicUrl(name: string, stored?: string): string {
-  if (stored && stored.startsWith('http')) return stored;
-  return `${CF_PROXY}/w/${name}`;   // future: path-based routing
+  if (stored && stored.startsWith('http') && !stored.includes(CF_PROXY)) return stored;
+  return `https://${name}.${PUBLIC_DOMAIN}`;
 }
 
 export async function GET(): Promise<NextResponse> {
@@ -43,14 +44,18 @@ export async function GET(): Promise<NextResponse> {
         const SKIP = new Set(['content']); // 不在列表中返回 HTML 内容（节省流量）
         const workers = (data.rows || []).map((row: any) => {
           const name = row.primaryKey[0].value as string;
-          const info: Record<string, unknown> = { id: name, name, requests: '~', latency: '~' };
+          const info: Record<string, unknown> = { id: name, name };
           row.attributes.forEach((a: any) => {
             if (!SKIP.has(a.columnName)) info[a.columnName] = a.columnValue;
           });
-          info.url = workerPublicUrl(name, info.publicUrl as string);
+          // Only show public URL for deployed (non-draft) workers
+          info.url = info.status === 'draft' ? '' : workerPublicUrl(name, info.publicUrl as string);
           return info;
         });
-        resolve(NextResponse.json({ workers }));
+        const totalWorkers = workers.length;
+        const activeWorkers = workers.filter((w: any) => w.status === 'active').length;
+        const draftWorkers  = workers.filter((w: any) => w.status === 'draft').length;
+        resolve(NextResponse.json({ workers, stats: { totalWorkers, activeWorkers, draftWorkers } }));
       });
     });
   }
