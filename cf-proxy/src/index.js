@@ -25,10 +25,22 @@ export default {
       return new Response(null, { status: 204, headers: corsHeaders() });
     }
 
+    // ── app.neowow.studio → Dashboard (Cloudflare Pages) ────────────────────────
+    if (host === 'app.neowow.studio') {
+      const pagesUrl = new URL(request.url);
+      pagesUrl.hostname = 'neowow-studio-dashboard.pages.dev';
+      const pagesReq = new Request(pagesUrl.toString(), {
+        method:  request.method,
+        headers: new Headers({ ...Object.fromEntries(request.headers), host: 'app.neowow.studio' }),
+        body:    request.method !== 'GET' && request.method !== 'HEAD' ? request.body : undefined,
+      });
+      return fetch(pagesReq);
+    }
+
     // ── *.neowow.studio 子域名路由：{workerName}.neowow.studio → Worker ─────────
-    // 匹配任意子域（排除裸域 neowow.studio 本身，以及 www.neowow.studio）
+    // 匹配任意子域（排除裸域 neowow.studio 本身，www 以及 app）
     const subdomainMatch = host.match(/^([a-z0-9][a-z0-9-]{0,61})\.neowow\.studio$/i);
-    if (subdomainMatch && subdomainMatch[1] !== 'www') {
+    if (subdomainMatch && !['www', 'app'].includes(subdomainMatch[1].toLowerCase())) {
       const workerName = subdomainMatch[1].toLowerCase();
       return proxyToWorker(request, workerName, path, url);
     }
