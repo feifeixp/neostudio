@@ -2,8 +2,60 @@
 import { use, useEffect, useRef, useState, useCallback } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
+import dynamic from 'next/dynamic';
 import styles from './page.module.css';
 import { getTemplateById } from '@/lib/templates';
+
+// CodeMirror — loaded client-side only (no SSR)
+const CodeMirror = dynamic(() => import('@uiw/react-codemirror'), { ssr: false });
+
+// Detect language extension from code content
+async function getLangExtension(src: string) {
+  const s = src.trimStart();
+  if (s.startsWith('<!') || s.startsWith('<html') || /<(div|p|span|head|body)/i.test(s)) {
+    const { html } = await import('@codemirror/lang-html');
+    return html({ matchClosingTags: true, autoCloseTags: true });
+  }
+  if (s.startsWith('{') || s.startsWith('[') || /^(const|let|var|function|import|export|class)/.test(s)) {
+    const { javascript } = await import('@codemirror/lang-javascript');
+    return javascript({ jsx: true, typescript: true });
+  }
+  const { css } = await import('@codemirror/lang-css');
+  return css();
+}
+
+function CodeMirrorEditor({ code, onChange }: { code: string; onChange: (v: string) => void }) {
+  const [extensions, setExtensions] = useState<unknown[]>([]);
+  const [theme, setTheme] = useState<unknown>(undefined);
+
+  useEffect(() => {
+    getLangExtension(code).then(ext => setExtensions([ext]));
+    import('@codemirror/theme-one-dark').then(m => setTheme(m.oneDark));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // detect once on mount
+
+  return (
+    <CodeMirror
+      value={code}
+      height="100%"
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      theme={theme as any}
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      extensions={extensions as any[]}
+      onChange={onChange}
+      basicSetup={{
+        lineNumbers:      true,
+        foldGutter:       true,
+        bracketMatching:  true,
+        closeBrackets:    true,
+        autocompletion:   true,
+        highlightActiveLine: true,
+        lineWrapping:     true,
+      }}
+      style={{ height: '100%', fontSize: '0.8rem' }}
+    />
+  );
+}
 
 interface ChatMessage { role: 'user' | 'ai' | 'status'; text: string; }
 type SaveStatus = 'saved' | 'saving' | 'unsaved';
@@ -29,8 +81,8 @@ export default function VibePage({ params }: { params: Promise<{ id: string }> }
   ]);
   const [input,        setInput]        = useState('');
   const [isStreaming,  setIsStreaming]  = useState(false);
-  const [rightTab,     setRightTab]     = useState<'code' | 'preview'>('code');
-  const [previewSrc,   setPreviewSrc]   = useState('');
+  const [rightTab,     setRightTab]     = useState<'code' | 'preview'>('preview');
+  const [previewSrc,   setPreviewSrc]   = useState(() => isNew ? getTemplateById(templateId).html : '');
   const [codeChanged,  setCodeChanged]  = useState(false);
   const [publishing,   setPublishing]   = useState(false);
   const [publishedUrl, setPublishedUrl] = useState('');
@@ -39,6 +91,12 @@ export default function VibePage({ params }: { params: Promise<{ id: string }> }
   const msgEndRef    = useRef<HTMLDivElement>(null);
   const historyRef   = useRef<Array<{ role: string; content: string }>>([]);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // ── Full-screen: hide layout nav & padding ────────────────────────────────
+  useEffect(() => {
+    document.body.classList.add('vibe-fullscreen');
+    return () => document.body.classList.remove('vibe-fullscreen');
+  }, []);
 
   // Auto-scroll chat
   useEffect(() => { msgEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
@@ -55,6 +113,7 @@ export default function VibePage({ params }: { params: Promise<{ id: string }> }
       .then((d) => {
         if (d.content) {
           setCode(d.content);
+          setPreviewSrc(d.content);
           setMessages([{ role: 'ai', text: `👋 项目「${workerId}」已加载，继续和我聊聊你想怎么改进吧！` }]);
         } else {
           setMessages([{ role: 'ai', text: `👋 已就绪，开始编辑「${workerId}」吧！` }]);
@@ -256,12 +315,7 @@ export default function VibePage({ params }: { params: Promise<{ id: string }> }
 
         {rightTab === 'code' && (
           <div className={styles.editorWrap}>
-            <textarea
-              className={styles.codeEditor}
-              value={code}
-              onChange={e => { setCode(e.target.value); setCodeChanged(true); }}
-              spellCheck={false}
-            />
+            <CodeMirrorEditor code={code} onChange={(v) => { setCode(v); setCodeChanged(true); }} />
           </div>
         )}
 

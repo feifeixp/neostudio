@@ -231,23 +231,25 @@
   flex: 1;
   overflow: hidden;
   position: relative;
+  display: flex;
+  flex-direction: column;
 }
 
-.codeEditor {
-  width: 100%;
+/* Let CodeMirror fill the wrapper */
+.editorWrap :global(.cm-editor) {
+  flex: 1;
   height: 100%;
-  background: #0a0c0f;
-  color: #e2e8f0;
-  font-family: 'Fira Code', 'Cascadia Code', 'JetBrains Mono', monospace;
-  font-size: 0.82rem;
-  line-height: 1.65;
-  padding: 16px;
-  border: none;
-  resize: none;
-  outline: none;
-  tab-size: 2;
-  white-space: pre;
   overflow: auto;
+}
+
+.editorWrap :global(.cm-scroller) {
+  overflow: auto;
+  font-family: 'Fira Code', 'Cascadia Code', 'JetBrains Mono', monospace;
+  line-height: 1.65;
+}
+
+.editorWrap :global(.cm-lineWrapping) {
+  word-break: break-all;
 }
 
 /* Preview iframe */

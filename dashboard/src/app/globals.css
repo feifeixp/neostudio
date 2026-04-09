@@ -215,6 +215,11 @@ h1, h2, h3 {
   padding: 40px 24px;
 }
 
+/* ── Vibe fullscreen mode (hides nav + layout padding) ───────────────────── */
+body.vibe-fullscreen .main-nav      { display: none; }
+body.vibe-fullscreen .main-content  { padding: 0; max-width: 100%; }
+body.vibe-fullscreen .layout-wrapper { overflow: hidden; height: 100vh; }
+
 /* ── User dropdown ─────────────────────────────────────────────────────────── */
 .user-dropdown {
   position: absolute;
