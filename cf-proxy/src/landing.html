@@ -1928,8 +1928,7 @@
   // ── AUTH MODULE ─────────────────────────────────────────────────────────────
   // API 通过 CF Worker 代理到后端（/neo-api → FC worker-runtime → 业务服务）
   const API_BASE = '/neo-api';
-  // 当 Dashboard 公网部署后，将此 URL 改为 CF Pages 域名
-  const DASHBOARD_URL = 'http://localhost:3000';
+  const DASHBOARD_URL = 'https://dashboard-bay-phi-24.vercel.app';
 
   // ── Auth state
   let authContact = '';      // 当前输入的手机号/邮箱
