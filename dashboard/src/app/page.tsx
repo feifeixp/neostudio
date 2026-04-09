@@ -12,6 +12,7 @@ interface WorkerData {
   status: string;
   requests: string;
   latency: string;
+  templateId?: string;
 }
 
 type ImportTab = 'upload' | 'git';
@@ -240,28 +241,51 @@ export default function Home() {
         </div>
       </div>
 
-      <h2 className="animate-fade-in" style={{ animationDelay: '0.6s', marginTop: 48, marginBottom: 24 }}>最近活跃应用</h2>
+      <h2 className="animate-fade-in" style={{ animationDelay: '0.6s', marginTop: 48, marginBottom: 24 }}>我的项目</h2>
       <div className={styles.workersGrid}>
-        {workers.map((worker, i) => (
-          <Link href={`/workers/${worker.id}`} key={worker.id} style={{ display: 'block' }}>
-            <div className={`glass-card animate-fade-in`} style={{ animationDelay: `${0.7 + i * 0.1}s`, height: '100%' }}>
-              <div className={styles.workerHeader}>
-                <h3>{worker.name}</h3>
-                <div className={styles.metrics}>
-                  <span>~{worker.latency}</span>
-                  <span>{worker.requests} 次</span>
+        {workers.map((worker, i) => {
+          const isDraft = worker.status === 'draft';
+          const href    = isDraft ? `/vibe/${worker.id}` : `/workers/${worker.id}`;
+          return (
+            <Link href={href} key={worker.id} style={{ display: 'block' }}>
+              <div
+                className={`glass-card animate-fade-in ${isDraft ? styles.draftCard : ''}`}
+                style={{ animationDelay: `${0.7 + i * 0.1}s`, height: '100%' }}
+              >
+                <div className={styles.workerHeader}>
+                  <h3>{worker.name}</h3>
+                  {isDraft ? (
+                    <span className={styles.draftBadge}>草稿</span>
+                  ) : (
+                    <div className={styles.metrics}>
+                      <span>~{worker.latency}</span>
+                      <span>{worker.requests} 次</span>
+                    </div>
+                  )}
+                </div>
+                <span className={styles.workerUrl}>
+                  {isDraft
+                    ? (worker.templateId ? `模板：${TEMPLATES.find(t => t.id === worker.templateId)?.name ?? worker.templateId}` : '空白项目')
+                    : worker.url}
+                </span>
+                <div className={styles.workerStatus}>
+                  {isDraft ? (
+                    <>
+                      <span className={styles.editHint}>✏️ 点击继续编辑</span>
+                    </>
+                  ) : (
+                    <>
+                      <span className={`status-dot ${worker.status}`}></span>
+                      <span style={{ textTransform: 'capitalize', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
+                        {worker.status === 'active' ? '运行中' : worker.status === 'deploying' ? '部署中' : '已暂停'}
+                      </span>
+                    </>
+                  )}
                 </div>
               </div>
-              <span className={styles.workerUrl}>{worker.url}</span>
-              <div className={styles.workerStatus}>
-                <span className={`status-dot ${worker.status}`}></span>
-                <span style={{ textTransform: 'capitalize', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
-                  {worker.status === 'active' ? '运行中' : worker.status === 'deploying' ? '部署中' : '已暂停'}
-                </span>
-              </div>
-            </div>
-          </Link>
-        ))}
+            </Link>
+          );
+        })}
       </div>
 
       {showModal && (

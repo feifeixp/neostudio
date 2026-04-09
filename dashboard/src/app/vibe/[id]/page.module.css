@@ -60,6 +60,15 @@
 .publishBtn:hover:not(:disabled) { opacity: 0.88; transform: translateY(-1px); }
 .publishBtn:disabled { opacity: 0.5; cursor: default; }
 
+.saveIndicator {
+  font-size: 0.78rem;
+  color: #475569;
+  transition: color 0.2s;
+}
+.saveIndicator[data-status="unsaved"] { color: #f59e0b; }
+.saveIndicator[data-status="saving"]  { color: #6366f1; }
+.saveIndicator[data-status="saved"]   { color: #64748b; }
+
 .publishedTag {
   font-size: 0.8rem;
   color: #10b981;

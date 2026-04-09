@@ -36,7 +36,7 @@ export async function GET(
         tsClient.getRow({
           tableName:    TABLE_NAME,
           primaryKey:   [{ workerName: id }],
-          columnsToGet: ['functionName', 'status', 'type', 'publicUrl', 'fileCount', 'deployedAt'],
+          columnsToGet: ['functionName', 'status', 'type', 'publicUrl', 'fileCount', 'deployedAt', 'content', 'templateId', 'updatedAt'],
         }, (err: any, result: any) => (err ? reject(err) : resolve(result)));
       });
 

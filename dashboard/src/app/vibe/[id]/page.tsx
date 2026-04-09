@@ -1,36 +1,99 @@
 "use client";
 import { use, useEffect, useRef, useState, useCallback } from 'react';
 import Link from 'next/link';
-import { useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import styles from './page.module.css';
 import { getTemplateById } from '@/lib/templates';
 
 interface ChatMessage { role: 'user' | 'ai' | 'status'; text: string; }
+type SaveStatus = 'saved' | 'saving' | 'unsaved';
 
 export default function VibePage({ params }: { params: Promise<{ id: string }> }) {
-  const { id }          = use(params);
-  const searchParams    = useSearchParams();
-  const templateId      = searchParams.get('template') ?? 'blank';
+  const { id }       = use(params);
+  const router       = useRouter();
+  const searchParams = useSearchParams();
+  const templateId   = searchParams.get('template') ?? 'blank';
+  const isNew        = id === 'new';
 
-  // Stable worker ID: if URL id is 'new', generate one client-side
-  const [workerId]       = useState(() => id === 'new' ? 'w-' + Math.random().toString(36).slice(2, 7) : id);
-  const [code, setCode]  = useState(() => getTemplateById(templateId).html);
+  // Stable worker ID: generate once if new
+  const [workerId] = useState(() =>
+    isNew ? 'w-' + Math.random().toString(36).slice(2, 7) : id,
+  );
+
+  const [code, setCode]   = useState(() => getTemplateById(templateId).html);
+  const [loaded, setLoaded] = useState(isNew); // new projects start as "loaded"
   const [messages, setMessages] = useState<ChatMessage[]>(() => [
-    { role: 'ai', text: `👋 我已加载「${getTemplateById(templateId).name}」模板。告诉我你想要什么样的效果吧！` },
+    { role: 'ai', text: isNew
+        ? `👋 我已加载「${getTemplateById(templateId).name}」模板。告诉我你想要什么样的效果吧！`
+        : '⏳ 正在加载项目...' },
   ]);
-  const [input,       setInput]       = useState('');
-  const [isStreaming, setIsStreaming] = useState(false);
-  const [rightTab,    setRightTab]    = useState<'code' | 'preview'>('code');
-  const [previewSrc,  setPreviewSrc]  = useState('');
-  const [codeChanged, setCodeChanged] = useState(false);
-  const [publishing,  setPublishing]  = useState(false);
-  const [publishedUrl,setPublishedUrl]= useState('');
+  const [input,        setInput]        = useState('');
+  const [isStreaming,  setIsStreaming]  = useState(false);
+  const [rightTab,     setRightTab]     = useState<'code' | 'preview'>('code');
+  const [previewSrc,   setPreviewSrc]   = useState('');
+  const [codeChanged,  setCodeChanged]  = useState(false);
+  const [publishing,   setPublishing]   = useState(false);
+  const [publishedUrl, setPublishedUrl] = useState('');
+  const [saveStatus,   setSaveStatus]   = useState<SaveStatus>('saved');
 
-  const msgEndRef   = useRef<HTMLDivElement>(null);
-  const historyRef  = useRef<Array<{ role: string; content: string }>>([]);
+  const msgEndRef    = useRef<HTMLDivElement>(null);
+  const historyRef   = useRef<Array<{ role: string; content: string }>>([]);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Auto-scroll chat
   useEffect(() => { msgEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
+
+  // ── Load existing project (when id !== 'new') ─────────────────────────────
+  useEffect(() => {
+    if (isNew) {
+      // Save draft immediately for new projects
+      saveDraft(workerId, templateId, code);
+      return;
+    }
+    fetch(`/api/workers/${workerId}`)
+      .then(r => r.json())
+      .then((d) => {
+        if (d.content) {
+          setCode(d.content);
+          setMessages([{ role: 'ai', text: `👋 项目「${workerId}」已加载，继续和我聊聊你想怎么改进吧！` }]);
+        } else {
+          setMessages([{ role: 'ai', text: `👋 已就绪，开始编辑「${workerId}」吧！` }]);
+        }
+        setLoaded(true);
+      })
+      .catch(() => {
+        setMessages([{ role: 'ai', text: '⚠️ 无法加载已有项目，使用空白画布。' }]);
+        setLoaded(true);
+      });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ── Save draft helper ──────────────────────────────────────────────────────
+  const saveDraft = useCallback(async (wid: string, tid: string, html: string) => {
+    setSaveStatus('saving');
+    try {
+      await fetch('/api/draft', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ workerName: wid, templateId: tid, code: html }),
+      });
+      setSaveStatus('saved');
+    } catch {
+      setSaveStatus('unsaved');
+    }
+  }, []);
+
+  // ── Debounced auto-save when code changes ─────────────────────────────────
+  useEffect(() => {
+    if (!loaded) return;
+    setSaveStatus('unsaved');
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => {
+      saveDraft(workerId, templateId, code);
+    }, 2000);
+    return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [code]);
 
   const addMsg = useCallback((msg: ChatMessage) =>
     setMessages(prev => [...prev, msg]), []);
@@ -80,7 +143,7 @@ export default function VibePage({ params }: { params: Promise<{ id: string }> }
             if (evt.type === 'done') {
               // Remove status bubble, add final AI message
               setMessages(prev => prev.filter(m => m.role !== 'status').concat({ role: 'ai', text: aiText.replace(/<<<HTML>>>[\s\S]*?<<<END_HTML>>>/g, '').trim() || '代码已更新！' }));
-              if (newHtml) { setCode(newHtml); setCodeChanged(true); }
+              if (newHtml) { setCode(newHtml); setCodeChanged(true); setLoaded(true); }
               historyRef.current = [...historyRef.current, { role: 'assistant', content: aiText }];
             }
             if (evt.type === 'error') { addMsg({ role: 'ai', text: '❌ ' + evt.text }); }
@@ -104,6 +167,8 @@ export default function VibePage({ params }: { params: Promise<{ id: string }> }
   // ── Publish ─────────────────────────────────────────────────────────────
   const handlePublish = useCallback(async () => {
     setPublishing(true);
+    // Flush any pending auto-save before publishing
+    if (saveTimerRef.current) { clearTimeout(saveTimerRef.current); saveTimerRef.current = null; }
     try {
       const res = await fetch('/api/deploy', {
         method:  'POST',
@@ -111,12 +176,19 @@ export default function VibePage({ params }: { params: Promise<{ id: string }> }
         body:    JSON.stringify({ workerName: workerId, files: [{ name: 'index.html', content: code }] }),
       });
       const d = await res.json();
-      if (res.ok) setPublishedUrl(d.url);
-      else addMsg({ role: 'ai', text: '❌ 发布失败：' + (d.error || '未知错误') });
+      if (res.ok) {
+        setPublishedUrl(d.url);
+        setSaveStatus('saved');
+        addMsg({ role: 'ai', text: `✅ 已发布上线！访问地址：${d.url}` });
+        // Navigate back to home after 1.5 s so user sees the card update
+        setTimeout(() => router.push('/'), 1500);
+      } else {
+        addMsg({ role: 'ai', text: '❌ 发布失败：' + (d.error || '未知错误') });
+      }
     } catch (e: unknown) {
       addMsg({ role: 'ai', text: '❌ 发布异常：' + (e instanceof Error ? e.message : String(e)) });
     } finally { setPublishing(false); }
-  }, [workerId, code, addMsg]);
+  }, [workerId, code, addMsg, router]);
 
   return (
     <div className={styles.page}>
@@ -127,12 +199,16 @@ export default function VibePage({ params }: { params: Promise<{ id: string }> }
           <span className={styles.workerName}>✦ {workerId}</span>
         </div>
         <div className={styles.headerRight}>
+          <span className={styles.saveIndicator} data-status={saveStatus}>
+            {saveStatus === 'saving'  ? '💾 保存中...'  :
+             saveStatus === 'unsaved' ? '● 未保存'      : '✓ 已自动保存'}
+          </span>
           {publishedUrl && (
             <a href={publishedUrl} target="_blank" rel="noreferrer" className={styles.publishedTag}>
               ✅ 已发布 ↗
             </a>
           )}
-          <button className={styles.publishBtn} onClick={handlePublish} disabled={publishing}>
+          <button className={styles.publishBtn} onClick={handlePublish} disabled={publishing || !loaded}>
             {publishing ? '发布中...' : '🚀 发布上线'}
           </button>
         </div>

@@ -69,6 +69,31 @@
   border-top: 1px solid var(--glass-border);
 }
 
+/* ── Draft card styles ────────────────────────────────────────────────────── */
+.draftCard {
+  border-color: rgba(245, 158, 11, 0.2) !important;
+}
+.draftCard:hover {
+  border-color: rgba(245, 158, 11, 0.5) !important;
+}
+
+.draftBadge {
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 2px 9px;
+  border-radius: 20px;
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  color: #f59e0b;
+  letter-spacing: 0.03em;
+}
+
+.editHint {
+  font-size: 0.85rem;
+  color: #f59e0b;
+  opacity: 0.75;
+}
+
 .modalOverlay {
   position: fixed;
   top: 0; left: 0; right: 0; bottom: 0;
