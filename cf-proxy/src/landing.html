@@ -2197,7 +2197,10 @@
   function enterDashboard() {
     const session = getStoredSession();
     const url = new URL(DASHBOARD_URL);
-    if (session?.authorization) url.searchParams.set('token', session.authorization);
+    if (session?.authorization) url.searchParams.set('token',    session.authorization);
+    if (session?.nickname)      url.searchParams.set('nickname', session.nickname);
+    if (session?.contact)       url.searchParams.set('contact',  session.contact);
+    if (session?.email)         url.searchParams.set('email',    session.email);
     closeAuthModal();
     window.open(url.toString(), '_blank');
   }

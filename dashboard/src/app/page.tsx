@@ -106,7 +106,24 @@ export default function Home() {
       .catch(err => console.error("Failed to fetch workers:", err));
   };
 
+  // ── Read session from URL params (cross-origin handoff from landing page) ──
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get('token');
+    if (token) {
+      const session = {
+        authorization: token,
+        nickname: params.get('nickname') || undefined,
+        contact:  params.get('contact')  || undefined,
+        email:    params.get('email')    || undefined,
+      };
+      try { localStorage.setItem('neoStudioSession', JSON.stringify(session)); } catch { /* ignore */ }
+      // Clean URL so the token isn't visible / bookmarked
+      const clean = window.location.pathname;
+      window.history.replaceState({}, '', clean);
+      // Dispatch storage event so UserMenu re-reads immediately
+      window.dispatchEvent(new Event('neoSessionUpdated'));
+    }
     fetchWorkers();
   }, []);
   
