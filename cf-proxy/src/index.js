@@ -2,11 +2,12 @@
  * Cloudflare Worker — Neowow Studio 统一代理网关
  *
  * 路由规则：
- *   GET /               → 产品介绍页（直接在 CF 边缘响应）
- *   GET /landing        → 同上
- *   POST /api/chat      → Claude AI 对话代理（供已部署的 AI 助手页面调用）
- *   /w/{workerName}/*   → 转发到 FC，携带 X-Worker-Name header
- *   其余               → 直接透传 FC
+ *   {workerName}.neowow.studio/*  → 子域名直接映射到 Worker（自定义域名模式）
+ *   GET /                          → 产品介绍页（直接在 CF 边缘响应）
+ *   GET /landing                   → 同上
+ *   POST /api/chat                 → Claude AI 对话代理
+ *   /w/{workerName}/*              → 转发到 FC，携带 X-Worker-Name header
+ *   其余                           → 直接透传 FC
  */
 
 import LANDING_HTML from './landing.html';
@@ -17,10 +18,19 @@ export default {
   async fetch(request, env) {
     const url  = new URL(request.url);
     const path = url.pathname;
+    const host = request.headers.get('host') || url.hostname;
 
     // CORS preflight
     if (request.method === 'OPTIONS') {
       return new Response(null, { status: 204, headers: corsHeaders() });
+    }
+
+    // ── *.neowow.studio 子域名路由：{workerName}.neowow.studio → Worker ─────────
+    // 匹配任意子域（排除裸域 neowow.studio 本身，以及 www.neowow.studio）
+    const subdomainMatch = host.match(/^([a-z0-9][a-z0-9-]{0,61})\.neowow\.studio$/i);
+    if (subdomainMatch && subdomainMatch[1] !== 'www') {
+      const workerName = subdomainMatch[1].toLowerCase();
+      return proxyToWorker(request, workerName, path, url);
     }
 
     // ── 如果设置了 WORKER_ID env（独立子域名部署模式），所有请求都路由到该 worker ──

@@ -1,6 +1,13 @@
 name = "neo-proxy"
 main = "src/index.js"
 compatibility_date = "2024-01-01"
+workers_dev = true
+
+# 自定义域名路由：neowow.studio 主域 + *.neowow.studio 所有子域
+routes = [
+  { pattern = "neowow.studio/*",   zone_name = "neowow.studio" },
+  { pattern = "*.neowow.studio/*", zone_name = "neowow.studio" },
+]
 
 [[rules]]
 type = "Text"
