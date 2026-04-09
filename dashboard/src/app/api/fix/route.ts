@@ -1,4 +1,4 @@
-import Anthropic from '@anthropic-ai/sdk';
+import { createClient, hasKey, FAST_MODEL } from '@/lib/openrouter';
 
 export const maxDuration = 60;
 
@@ -71,15 +71,13 @@ ${(recentLogs || []).join('\n')}
 ${currentCode ? currentCode.slice(0, 8000) : '（无法读取 Worker 代码）'}
 `.trim();
 
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    // Mock response when no API key
+  if (!hasKey()) {
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
       start(controller) {
         const send = (d: object) =>
           controller.enqueue(encoder.encode(`data: ${JSON.stringify(d)}\n\n`));
-        send({ type: 'text', text: `⚠️ 未配置 ANTHROPIC_API_KEY，无法进行 AI 分析。\n\n错误 "${errorLog}" 可能原因：资源文件路径不存在或外部依赖加载失败。` });
+        send({ type: 'text', text: `⚠️ 未配置 OPENROUTER_API_KEY，无法进行 AI 分析。\n\n错误 "${errorLog}" 可能原因：资源文件路径不存在或外部依赖加载失败。` });
         send({ type: 'done' });
         controller.close();
       },
@@ -87,7 +85,7 @@ ${currentCode ? currentCode.slice(0, 8000) : '（无法读取 Worker 代码）'}
     return new Response(stream, { headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' } });
   }
 
-  const client = new Anthropic({ apiKey });
+  const client  = createClient();
   const encoder = new TextEncoder();
 
   const stream = new ReadableStream({
@@ -97,29 +95,31 @@ ${currentCode ? currentCode.slice(0, 8000) : '（无法读取 Worker 代码）'}
       try {
         send({ type: 'status', text: '🔍 正在分析错误...' });
 
-        const claudeStream = client.messages.stream({
-          model:      process.env.CLAUDE_MODEL || 'claude-haiku-4-5',
+        const orStream = await client.chat.completions.create({
+          model:      FAST_MODEL,
           max_tokens: 4096,
-          system:     FIX_SYSTEM_PROMPT,
-          messages:   [{ role: 'user', content: userMessage }],
+          stream:     true,
+          messages:   [
+            { role: 'system', content: FIX_SYSTEM_PROMPT },
+            { role: 'user',   content: userMessage },
+          ],
         });
 
         let buffer = '';
-        claudeStream.on('text', (chunk: string) => {
-          buffer += chunk;
-          send({ type: 'text', text: chunk });
-        });
+        for await (const chunk of orStream) {
+          const text = chunk.choices[0]?.delta?.content ?? '';
+          if (!text) continue;
+          buffer += text;
+          send({ type: 'text', text });
+        }
 
-        await claudeStream.finalMessage();
-
-        // Extract fixed code if present
         const codeMatch = buffer.match(/<<<FIXED_HTML>>>([\s\S]*?)<<<END_FIXED_HTML>>>/);
         if (codeMatch) {
           send({ type: 'fixed_code', code: codeMatch[1].trim() });
         }
         send({ type: 'done' });
-      } catch (err: any) {
-        send({ type: 'error', text: `分析失败: ${err.message}` });
+      } catch (err: unknown) {
+        send({ type: 'error', text: `分析失败: ${err instanceof Error ? err.message : String(err)}` });
       } finally {
         controller.close();
       }

@@ -1,11 +1,6 @@
-import Anthropic from '@anthropic-ai/sdk';
+import { createClient, hasKey, GEN_MODEL } from '@/lib/openrouter';
 
-// CF Pages (opennextjs-cloudflare) 所有路由默认在 Workers edge runtime 运行，无需额外标注
-export const maxDuration = 120; // 120s timeout for long Claude generations
-
-const client = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
-});
+export const maxDuration = 120;
 
 /** 普通网页应用 */
 const SYSTEM_PROMPT = `你是一个专业的前端工程师，擅长生成高质量的 Web 应用代码。
@@ -62,7 +57,7 @@ export async function POST(req: Request) {
     });
   }
 
-  if (!process.env.ANTHROPIC_API_KEY) {
+  if (!hasKey()) {
     return new Response(JSON.stringify({
       success: true,
       code: buildFallbackTemplate(prompt),
@@ -70,7 +65,7 @@ export async function POST(req: Request) {
     }), { headers: { 'Content-Type': 'application/json' } });
   }
 
-  // Stream to browser via SSE so the terminal feels alive
+  const client  = createClient();
   const encoder = new TextEncoder();
 
   const stream = new ReadableStream({
@@ -80,59 +75,41 @@ export async function POST(req: Request) {
       };
 
       try {
-        send({ type: 'status', message: '🤖 Claude 正在思考...' });
+        send({ type: 'status', message: '🤖 AI 正在思考...' });
 
-        // Model: default to sonnet (cost-efficient), override via env CLAUDE_MODEL
-        // Use opus + thinking only when explicitly set
-        const model       = process.env.CLAUDE_MODEL || 'claude-sonnet-4-5';
-        const useThinking = model.includes('opus');
-
-        const claudeStream = client.messages.stream({
-          model,
-          max_tokens: useThinking ? 16000 : 8192,
-          ...(useThinking ? { thinking: { type: 'enabled', budget_tokens: 8000 } } : {}),
-          system: systemPrompt,
-          messages: [{ role: 'user', content: userMessage }],
+        const orStream = await client.chat.completions.create({
+          model:      GEN_MODEL,
+          max_tokens: 8192,
+          stream:     true,
+          messages:   [
+            { role: 'system', content: systemPrompt },
+            { role: 'user',   content: userMessage },
+          ],
         });
 
-        let thinking = false;
+        let started    = false;
         let codeBuffer = '';
 
-        claudeStream.on('text', (text) => {
+        for await (const chunk of orStream) {
+          const text = chunk.choices[0]?.delta?.content ?? '';
+          if (!text) continue;
           codeBuffer += text;
-          // Drip status updates as code streams in
-          if (!thinking && codeBuffer.length > 100) {
-            thinking = true;
+          if (!started && codeBuffer.length > 100) {
+            started = true;
             send({ type: 'status', message: '✍️ 正在生成代码...' });
           }
-          if (codeBuffer.length % 2000 < 50) {
+          if (codeBuffer.length % 2000 < text.length) {
             send({ type: 'progress', chars: codeBuffer.length });
           }
-        });
-
-        const response = await claudeStream.finalMessage();
-
-        const code = response.content
-          .filter((b) => b.type === 'text')
-          .map((b) => (b as Anthropic.TextBlock).text)
-          .join('');
-
-        if (!code.trim()) {
-          send({ type: 'error', message: 'Claude 返回了空响应' });
-        } else {
-          send({
-            type: 'done',
-            code: code.trim(),
-            usage: {
-              input_tokens:  response.usage.input_tokens,
-              output_tokens: response.usage.output_tokens,
-            },
-          });
         }
-      } catch (err: any) {
-        let message = err.message || 'Unknown error';
-        if (err instanceof Anthropic.AuthenticationError) message = 'ANTHROPIC_API_KEY 无效';
-        if (err instanceof Anthropic.RateLimitError)     message = 'Claude API 达到速率限制，请稍后重试';
+
+        if (!codeBuffer.trim()) {
+          send({ type: 'error', message: 'AI 返回了空响应' });
+        } else {
+          send({ type: 'done', code: codeBuffer.trim() });
+        }
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : 'Unknown error';
         send({ type: 'error', message });
       } finally {
         controller.close();
@@ -169,7 +146,7 @@ function buildFallbackTemplate(prompt: string): string {
 <body>
   <div class="card">
     <h1>${prompt.slice(0, 60)}</h1>
-    <p>配置 ANTHROPIC_API_KEY 后，AI 将根据您的描述生成完整的应用代码。</p>
+    <p>配置 OPENROUTER_API_KEY 后，AI 将根据您的描述生成完整的应用代码。</p>
   </div>
 </body>
 </html>`;

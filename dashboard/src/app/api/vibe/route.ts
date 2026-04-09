@@ -1,4 +1,4 @@
-import Anthropic from '@anthropic-ai/sdk';
+import { createClient, hasKey, GEN_MODEL, FAST_MODEL } from '@/lib/openrouter';
 
 export const maxDuration = 120;
 
@@ -40,12 +40,12 @@ export async function POST(req: Request) {
   }
 
   // No API key → mock
-  if (!process.env.ANTHROPIC_API_KEY) {
+  if (!hasKey()) {
     const enc = new TextEncoder();
     const mock = new ReadableStream({
       start(c) {
         const send = (d: object) => c.enqueue(enc.encode(`data: ${JSON.stringify(d)}\n\n`));
-        send({ type: 'text', text: '未配置 ANTHROPIC_API_KEY，无法调用 AI。请在 Vercel 环境变量中添加后重新部署。' });
+        send({ type: 'text', text: '未配置 OPENROUTER_API_KEY，无法调用 AI。请在 Vercel 环境变量中添加后重新部署。' });
         send({ type: 'done' });
         c.close();
       },
@@ -53,7 +53,7 @@ export async function POST(req: Request) {
     return new Response(mock, { headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' } });
   }
 
-  const client  = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  const client  = createClient();
   const encoder = new TextEncoder();
 
   // Extract the latest user message for analysis
@@ -70,16 +70,16 @@ export async function POST(req: Request) {
         // ── Phase 1: Analysis ──────────────────────────────────────────────
         send({ type: 'status', text: '📋 分析需求...' });
 
-        const analysisRes = await client.messages.create({
-          model:      'claude-haiku-4-5',
+        const analysisRes = await client.chat.completions.create({
+          model:      FAST_MODEL,
           max_tokens: 400,
-          system:     ANALYSIS_SYSTEM,
-          messages:   [{
-            role:    'user',
-            content: `用户请求：${userText}\n\n当前代码（前 3000 字符）：\n${(currentCode ?? '').slice(0, 3000)}`,
-          }],
+          stream:     false,
+          messages:   [
+            { role: 'system', content: ANALYSIS_SYSTEM },
+            { role: 'user',   content: `用户请求：${userText}\n\n当前代码（前 3000 字符）：\n${(currentCode ?? '').slice(0, 3000)}` },
+          ],
         });
-        const plan = (analysisRes.content[0] as { text: string }).text.trim();
+        const plan = (analysisRes.choices[0]?.message?.content ?? '').trim();
         // Send plan as a special message type — UI will render it as a plan card
         send({ type: 'plan', text: plan });
 
@@ -95,33 +95,40 @@ export async function POST(req: Request) {
           },
         ];
 
-        const cs = client.messages.stream({
-          model:      process.env.CLAUDE_MODEL || 'claude-sonnet-4-5',
+        // Build messages in OpenAI format (system as first message)
+        const genMessages = [
+          { role: 'system' as const, content: GEN_SYSTEM },
+          ...withContext.slice(0, -1).map((m: { role: string; content: string }) => ({
+            role:    m.role as 'user' | 'assistant',
+            content: m.content,
+          })),
+          { role: 'user' as const, content: withContext[withContext.length - 1].content as string },
+        ];
+
+        const cs = await client.chat.completions.create({
+          model:      GEN_MODEL,
           max_tokens: 8192,
-          system:     GEN_SYSTEM,
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          messages:   withContext as any,
+          stream:     true,
+          messages:   genMessages,
         });
 
         let buffer = '';
         let sentUpTo = 0; // how many chars of explanation we've already sent
 
-        cs.on('text', (chunk: string) => {
-          buffer += chunk;
+        for await (const chunk of cs) {
+          const text = chunk.choices[0]?.delta?.content ?? '';
+          if (!text) continue;
+          buffer += text;
           const htmlStart = buffer.indexOf('<<<HTML>>>');
           if (htmlStart === -1) {
-            // Still in explanation — stream new text
             const newText = buffer.slice(sentUpTo);
             if (newText) { send({ type: 'text', text: newText }); sentUpTo = buffer.length; }
           } else if (sentUpTo < htmlStart) {
-            // Just crossed into HTML marker — flush remaining explanation
             const remaining = buffer.slice(sentUpTo, htmlStart).trim();
             if (remaining) send({ type: 'text', text: remaining });
             sentUpTo = htmlStart;
           }
-        });
-
-        await cs.finalMessage();
+        }
 
         // Extract HTML block
         const m = buffer.match(/<<<HTML>>>\s*([\s\S]*?)\s*<<<END_HTML>>>/);
