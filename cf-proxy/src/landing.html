@@ -2205,8 +2205,16 @@
     window.open(url.toString(), '_blank');
   }
 
-  // ── Init: restore session ─────────────────────────────────────────────────
+  // ── Init: restore session / handle logout redirect ───────────────────────
   (function initAuth() {
+    // If redirected here with ?logout=1, clear session and clean URL
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('logout') === '1') {
+      clearSession();
+      const clean = window.location.pathname;
+      window.history.replaceState({}, '', clean);
+      return; // stay on landing page as logged-out state
+    }
     const session = getStoredSession();
     if (session?.nickname || session?.contact) {
       updateNavForLoggedIn(session.nickname || (session.contact || '').split('@')[0]);

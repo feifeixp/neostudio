@@ -65,7 +65,8 @@ export default function UserMenu() {
     try { localStorage.removeItem("neoStudioSession"); } catch { /* ignore */ }
     setSession(null);
     setOpen(false);
-    window.location.href = LANDING_URL;
+    // Redirect to landing page with ?logout=1 so it clears its own session too
+    window.location.href = `${LANDING_URL}?logout=1`;
   };
 
   return (
