@@ -166,9 +166,10 @@
 }
 
 
-/* ── 模式选择器 ─────────────────────────────────────────────────────────── */
+/* ── 模式选择器 2×2 grid ────────────────────────────────────────────────── */
 .modeSelector {
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
   gap: 8px;
   margin-bottom: 12px;
 }
@@ -208,4 +209,99 @@
   background: rgba(255, 255, 255, 0.02);
   border-left: 2px solid rgba(99, 102, 241, 0.4);
   border-radius: 0 6px 6px 0;
+}
+
+/* ── Upload zone ─────────────────────────────────────────────────────────── */
+.uploadZone {
+  border: 2px dashed var(--border-color, rgba(255,255,255,0.12));
+  border-radius: 12px;
+  padding: 28px 16px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s;
+  color: var(--text-secondary);
+  margin-bottom: 10px;
+}
+.uploadZone:hover, .uploadZoneActive {
+  border-color: rgba(99, 102, 241, 0.6);
+  background: rgba(99, 102, 241, 0.05);
+  color: var(--text-primary);
+}
+.uploadIcon { font-size: 2rem; margin-bottom: 6px; }
+.uploadBtns { display: flex; gap: 8px; margin-bottom: 10px; }
+.uploadBtn {
+  flex: 1;
+  padding: 8px 12px;
+  border: 1px solid var(--glass-border);
+  border-radius: 8px;
+  background: rgba(255,255,255,0.04);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 0.85rem;
+  transition: all 0.2s;
+}
+.uploadBtn:hover {
+  border-color: rgba(99,102,241,0.5);
+  color: var(--text-primary);
+  background: rgba(99,102,241,0.08);
+}
+.fileList {
+  border: 1px solid var(--glass-border);
+  border-radius: 8px;
+  overflow: hidden;
+  margin-bottom: 4px;
+  max-height: 160px;
+  overflow-y: auto;
+}
+.fileListHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 7px 12px;
+  background: rgba(255,255,255,0.04);
+  border-bottom: 1px solid var(--glass-border);
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  position: sticky; top: 0;
+}
+.fileListHeader button {
+  background: none; border: none;
+  color: rgba(255,255,255,0.3); cursor: pointer; font-size: 0.8rem;
+}
+.fileListHeader button:hover { color: #f87171; }
+.fileItem {
+  display: flex; justify-content: space-between;
+  padding: 5px 12px;
+  font-size: 0.8rem; font-family: monospace;
+  color: var(--text-secondary);
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+.fileSize { color: rgba(255,255,255,0.25); }
+
+/* ── Git area ────────────────────────────────────────────────────────────── */
+.gitArea { display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; }
+.gitInput, .gitBranchInput {
+  padding: 11px 14px;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid var(--glass-border);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  outline: none;
+  transition: border-color 0.2s;
+  box-sizing: border-box;
+}
+.gitInput { width: 100%; }
+.gitInput:focus, .gitBranchInput:focus { border-color: var(--accent-color); }
+.gitRow { display: flex; gap: 8px; }
+.gitBranchInput { flex: 1; }
+.gitBadges {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 0.78rem; color: var(--text-secondary);
+}
+.gitBadges code {
+  padding: 2px 8px;
+  background: rgba(99,102,241,0.1);
+  border: 1px solid rgba(99,102,241,0.25);
+  border-radius: 4px; color: #a5b4fc;
 }

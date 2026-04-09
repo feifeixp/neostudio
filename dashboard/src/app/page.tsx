@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import styles from './page.module.css';
 
@@ -12,7 +12,87 @@ interface WorkerData {
   latency: string;
 }
 
-type DeployMode = 'page' | 'assistant';
+type DeployMode = 'page' | 'assistant' | 'upload' | 'git';
+
+const MODE_LABELS: Record<DeployMode, string> = {
+  page: '🌐 AI 生成网页', assistant: '🤖 AI 对话助手',
+  upload: '📁 上传文件',   git: '🔗 Git 仓库',
+};
+const MODE_TITLES: Record<DeployMode, string> = {
+  page: '🚀 AI 驱动极速部署', assistant: '🤖 创建 AI 对话助手',
+  upload: '📁 上传静态文件',   git: '🔗 从 Git 仓库部署',
+};
+const MODE_HINTS: Record<DeployMode, string> = {
+  page:      '用自然语言描述需求，AI 生成完整网页，一键部署到公网。',
+  assistant: '生成带真实 Claude 对话能力的 AI 助手，创建即可分享给任何人。',
+  upload:    '拖拽 HTML 文件 / 整个文件夹，直接部署静态网站到边缘节点。',
+  git:       '输入 GitHub / GitLab 仓库链接，自动拉取代码并部署（仅限公开仓库）。',
+};
+const ALLOWED_EXTS = /\.(html?|css|js|jsx|ts|tsx|json|md|txt|svg|ico|xml|ya?ml|webmanifest)$/i;
+
+function parseGitUrl(url: string) {
+  try {
+    const u = new URL(url.trim());
+    if (u.hostname === 'github.com') {
+      const p = u.pathname.replace(/^\//, '').split('/');
+      const owner = p[0], repo = p[1]?.replace(/\.git$/, '');
+      if (!owner || !repo) return null;
+      const isTree = p[2] === 'tree';
+      return { platform: 'github' as const, owner, repo, branch: isTree ? p[3] : 'HEAD', subpath: isTree ? p.slice(4).join('/') : '' };
+    }
+    if (u.hostname === 'gitlab.com') {
+      const p = u.pathname.replace(/^\//, '').split('/').filter(s => s !== '-');
+      const owner = p[0], repo = p[1]?.replace(/\.git$/, '');
+      if (!owner || !repo) return null;
+      const ti = p.indexOf('tree');
+      return { platform: 'gitlab' as const, owner, repo, branch: ti >= 0 ? p[ti + 1] : 'HEAD', subpath: ti >= 0 ? p.slice(ti + 2).join('/') : '' };
+    }
+  } catch { /* */ }
+  return null;
+}
+
+async function fetchGitHubFiles(owner: string, repo: string, branch: string, subpath: string, log: (s: string) => void) {
+  log('📡 连接 GitHub API...');
+  const ref = branch === 'HEAD' ? 'HEAD' : branch;
+  const r = await fetch(`https://api.github.com/repos/${owner}/${repo}/git/trees/${ref}?recursive=1`);
+  if (!r.ok) throw new Error(r.status === 404 ? '仓库不存在或为私有仓库' : `GitHub API 错误 ${r.status}`);
+  const { tree } = await r.json();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let blobs = (tree as any[]).filter((f: any) => f.type === 'blob' && ALLOWED_EXTS.test(f.path) && f.size < 500_000);
+  if (subpath) blobs = blobs.filter((f: any) => (f.path as string).startsWith(subpath + '/'));
+  if (!blobs.length) throw new Error('仓库中没有可部署的静态文件');
+  if (blobs.length > 60) { blobs = blobs.slice(0, 60); log('⚠️ 文件较多，仅取前 60 个'); }
+  log(`📦 发现 ${blobs.length} 个文件，下载中...`);
+  const files: Array<{name: string; content: string}> = [];
+  for (const f of blobs) {
+    const cr = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${f.path}?ref=${ref}`);
+    if (!cr.ok) continue;
+    const cd = await cr.json();
+    files.push({ name: subpath ? f.path.slice(subpath.length + 1) : f.path, content: atob(cd.content.replace(/\n/g, '')) });
+  }
+  return files;
+}
+
+async function fetchGitLabFiles(owner: string, repo: string, branch: string, subpath: string, log: (s: string) => void) {
+  log('📡 连接 GitLab API...');
+  const pid = encodeURIComponent(`${owner}/${repo}`);
+  const ref = branch === 'HEAD' ? 'main' : branch;
+  const r = await fetch(`https://gitlab.com/api/v4/projects/${pid}/repository/tree?recursive=true&ref=${ref}&per_page=100`);
+  if (!r.ok) throw new Error(r.status === 404 ? '仓库不存在或为私有仓库' : `GitLab API 错误 ${r.status}`);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let blobs = (await r.json() as any[]).filter((f: any) => f.type === 'blob' && ALLOWED_EXTS.test(f.path));
+  if (subpath) blobs = blobs.filter((f: any) => (f.path as string).startsWith(subpath + '/'));
+  if (!blobs.length) throw new Error('仓库中没有可部署的静态文件');
+  if (blobs.length > 60) { blobs = blobs.slice(0, 60); log('⚠️ 文件较多，仅取前 60 个'); }
+  log(`📦 发现 ${blobs.length} 个文件，下载中...`);
+  const files: Array<{name: string; content: string}> = [];
+  for (const f of blobs) {
+    const r2 = await fetch(`https://gitlab.com/api/v4/projects/${pid}/repository/files/${encodeURIComponent(f.path)}/raw?ref=${ref}`);
+    if (!r2.ok) continue;
+    files.push({ name: subpath ? f.path.slice(subpath.length + 1) : f.path, content: await r2.text() });
+  }
+  return files;
+}
 
 export default function Home() {
   const [workers, setWorkers] = useState<WorkerData[]>([]);
@@ -21,6 +101,12 @@ export default function Home() {
   const [mode, setMode] = useState<DeployMode>('page');
   const [lines, setLines] = useState<string[]>([]);
   const [isDeploying, setIsDeploying] = useState(false);
+  const [uploadedFiles, setUploadedFiles] = useState<Array<{name: string; content: string}>>([]);
+  const [isDragging, setIsDragging] = useState(false);
+  const [gitUrl, setGitUrl] = useState('');
+  const [gitBranch, setGitBranch] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const folderInputRef = useRef<HTMLInputElement>(null);
 
   const fetchWorkers = () => {
     fetch('/api/workers')
@@ -125,6 +211,90 @@ export default function Home() {
     setShowModal(false);
     setLines([]);
     setPrompt('');
+    setUploadedFiles([]);
+    setGitUrl(''); setGitBranch('');
+  };
+
+  // ── Shared deploy step ───────────────────────────────────────────────────
+  const deployFiles = async (files: Array<{name: string; content: string}>) => {
+    const workerName = 'w-' + Math.random().toString(36).substring(2, 7);
+    setLines(prev => [...prev, `✓ 正在推送至边缘沙箱 [${workerName}]...`]);
+    const res = await fetch('/api/deploy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ workerName, files }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Deploy failed');
+    setLines(prev => [...prev, '✓ 分配子域名与绑定路由...', `🚀 部署上线成功！访问地址: ${data.url}`]);
+    fetchWorkers();
+  };
+
+  // ── Upload mode handlers ─────────────────────────────────────────────────
+  const handleFileSelect = async (fileList: FileList) => {
+    const files: Array<{name: string; content: string}> = [];
+    for (const file of Array.from(fileList)) {
+      const name = (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name;
+      if (!ALLOWED_EXTS.test(name)) continue;
+      try { files.push({ name, content: await file.text() }); } catch { /* skip unreadable */ }
+    }
+    setUploadedFiles(files);
+  };
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const traverseEntry = async (entry: any, prefix: string, files: Array<{name: string; content: string}>): Promise<void> => {
+    if (entry.isFile) {
+      const name = prefix + entry.name;
+      if (!ALLOWED_EXTS.test(name)) return;
+      const content: string = await new Promise((res, rej) => entry.file((f: File) => f.text().then(res).catch(rej)));
+      files.push({ name, content });
+    } else if (entry.isDirectory) {
+      const reader = entry.createReader();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const entries: any[] = await new Promise((res, rej) => reader.readEntries(res, rej));
+      await Promise.all(entries.map((e: unknown) => traverseEntry(e, prefix + entry.name + '/', files)));
+    }
+  };
+
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault(); setIsDragging(false);
+    const items = e.dataTransfer.items;
+    if (!items) { handleFileSelect(e.dataTransfer.files); return; }
+    const files: Array<{name: string; content: string}> = [];
+    await Promise.all(Array.from(items).map(async item => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const entry = (item as any).webkitGetAsEntry?.();
+      if (entry) await traverseEntry(entry, '', files);
+    }));
+    setUploadedFiles(files);
+  };
+
+  const handleUploadDeploy = async () => {
+    if (!uploadedFiles.length || isDeploying) return;
+    setIsDeploying(true);
+    setLines([`> [上传] 准备部署 ${uploadedFiles.length} 个文件...`]);
+    try { await deployFiles(uploadedFiles); }
+    catch (e: unknown) { setLines(prev => [...prev, `❌ 部署失败: ${(e as Error).message}`]); }
+    finally { setIsDeploying(false); }
+  };
+
+  // ── Git mode handler ─────────────────────────────────────────────────────
+  const handleGitDeploy = async () => {
+    if (!gitUrl.trim() || isDeploying) return;
+    setIsDeploying(true);
+    setLines([`> [Git] 正在导入 ${gitUrl.trim()}...`]);
+    const log = (msg: string) => setLines(prev => [...prev, msg]);
+    try {
+      const info = parseGitUrl(gitUrl.trim());
+      if (!info) throw new Error('无法解析 URL，请确认格式（https://github.com/owner/repo）');
+      const branch = gitBranch.trim() || info.branch;
+      const files = info.platform === 'github'
+        ? await fetchGitHubFiles(info.owner, info.repo, branch, info.subpath, log)
+        : await fetchGitLabFiles(info.owner, info.repo, branch, info.subpath, log);
+      log(`✓ 成功获取 ${files.length} 个文件`);
+      await deployFiles(files);
+    } catch (e: unknown) { setLines(prev => [...prev, `❌ 导入失败: ${(e as Error).message}`]); }
+    finally { setIsDeploying(false); }
   };
 
   return (
@@ -190,67 +360,122 @@ export default function Home() {
       {showModal && (
         <div className={styles.modalOverlay} onClick={closeModal}>
           <div className={`glass-card ${styles.modalContent}`} onClick={e => e.stopPropagation()}>
+
+            {/* Header */}
             <div className={styles.modalHeader}>
-              <h2>{mode === 'assistant' ? '🤖 创建 AI 对话助手' : '🚀 AI 驱动极速部署'}</h2>
+              <h2>{MODE_TITLES[mode]}</h2>
               <button className={styles.modalClose} onClick={closeModal}>&times;</button>
             </div>
 
-            {/* 模式选择器 */}
+            {/* 模式选择器 2×2 */}
             <div className={styles.modeSelector}>
-              <button
-                className={`${styles.modeBtn} ${mode === 'page' ? styles.modeBtnActive : ''}`}
-                onClick={() => { setMode('page'); setPrompt(''); setLines([]); }}
-                disabled={isDeploying}
-              >
-                🌐 网页应用
-              </button>
-              <button
-                className={`${styles.modeBtn} ${mode === 'assistant' ? styles.modeBtnActive : ''}`}
-                onClick={() => { setMode('assistant'); setPrompt(''); setLines([]); }}
-                disabled={isDeploying}
-              >
-                🤖 AI 对话助手
-              </button>
+              {(['page', 'assistant', 'upload', 'git'] as DeployMode[]).map(m => (
+                <button key={m}
+                  className={`${styles.modeBtn} ${mode === m ? styles.modeBtnActive : ''}`}
+                  onClick={() => { setMode(m); setLines([]); setUploadedFiles([]); }}
+                  disabled={isDeploying}>
+                  {MODE_LABELS[m]}
+                </button>
+              ))}
             </div>
 
-            <p className={styles.modeHint}>
-              {mode === 'assistant'
-                ? '生成带真实 Claude 对话能力的 AI 助手页面，创建即可分享给任何人使用。'
-                : '用自然语言描述需求，AI 生成完整网页应用，一键部署到公网。'}
-            </p>
+            <p className={styles.modeHint}>{MODE_HINTS[mode]}</p>
 
-            <div className={styles.aiInputArea}>
-              <input
-                autoFocus
-                type="text"
-                placeholder={mode === 'assistant'
-                  ? '例如：帮我做一个营销文案助手，支持小红书、微信、抖音三种风格...'
-                  : '例如：帮我写一个高级炫酷的倒计时网页...'}
-                value={prompt}
-                onChange={e => setPrompt(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && handleDeploy()}
-                disabled={isDeploying}
-              />
-              <button
-                className="btn-primary"
-                onClick={handleDeploy}
-                disabled={isDeploying || !prompt.trim()}
-              >
-                {isDeploying ? '生成中...' : mode === 'assistant' ? '创建助手' : '发送指令'}
-              </button>
-            </div>
+            {/* ── AI 生成模式 ── */}
+            {(mode === 'page' || mode === 'assistant') && (
+              <div className={styles.aiInputArea}>
+                <input autoFocus type="text"
+                  placeholder={mode === 'assistant'
+                    ? '例如：帮我做一个营销文案助手，支持小红书、微信、抖音三种风格...'
+                    : '例如：帮我写一个高级炫酷的倒计时网页...'}
+                  value={prompt} onChange={e => setPrompt(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && handleDeploy()} disabled={isDeploying} />
+                <button className="btn-primary" onClick={handleDeploy}
+                  disabled={isDeploying || !prompt.trim()}>
+                  {isDeploying ? '生成中...' : mode === 'assistant' ? '创建助手' : '发送指令'}
+                </button>
+              </div>
+            )}
 
+            {/* ── 上传文件模式 ── */}
+            {mode === 'upload' && (
+              <div>
+                <div className={`${styles.uploadZone} ${isDragging ? styles.uploadZoneActive : ''}`}
+                  onDragOver={e => { e.preventDefault(); setIsDragging(true); }}
+                  onDragLeave={() => setIsDragging(false)} onDrop={handleDrop}>
+                  <div className={styles.uploadIcon}>📁</div>
+                  <p style={{margin:'4px 0', fontSize:'0.9rem'}}>拖拽文件 / 文件夹到此处</p>
+                  <p style={{margin:0, fontSize:'0.78rem', opacity:0.5}}>支持 HTML、CSS、JS、JSON、SVG 等静态资源</p>
+                </div>
+                <div className={styles.uploadBtns}>
+                  <button className={styles.uploadBtn} onClick={() => fileInputRef.current?.click()}>📄 选择文件</button>
+                  <button className={styles.uploadBtn} onClick={() => folderInputRef.current?.click()}>📂 选择文件夹</button>
+                </div>
+                {/* hidden inputs */}
+                <input ref={fileInputRef} type="file" multiple style={{display:'none'}}
+                  accept=".html,.htm,.css,.js,.jsx,.ts,.tsx,.json,.md,.svg,.txt,.xml,.yaml,.yml"
+                  onChange={e => e.target.files && handleFileSelect(e.target.files)} />
+                <input ref={folderInputRef} type="file" style={{display:'none'}}
+                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                  {...({'webkitdirectory': '', multiple: true} as any)}
+                  onChange={e => e.target.files && handleFileSelect(e.target.files)} />
+                {uploadedFiles.length > 0 && (<>
+                  <div className={styles.fileList}>
+                    <div className={styles.fileListHeader}>
+                      <span>已选 {uploadedFiles.length} 个文件</span>
+                      <button onClick={() => setUploadedFiles([])}>清空</button>
+                    </div>
+                    {uploadedFiles.slice(0, 8).map((f, i) => (
+                      <div key={i} className={styles.fileItem}>
+                        <span>📄 {f.name}</span>
+                        <span className={styles.fileSize}>{(new TextEncoder().encode(f.content).length / 1024).toFixed(1)} KB</span>
+                      </div>
+                    ))}
+                    {uploadedFiles.length > 8 && <div className={styles.fileItem} style={{opacity:0.5}}>…还有 {uploadedFiles.length - 8} 个文件</div>}
+                  </div>
+                  <button className="btn-primary" onClick={handleUploadDeploy} disabled={isDeploying}
+                    style={{width:'100%', marginTop:10}}>
+                    {isDeploying ? '部署中...' : `🚀 部署 ${uploadedFiles.length} 个文件`}
+                  </button>
+                </>)}
+              </div>
+            )}
+
+            {/* ── Git 仓库模式 ── */}
+            {mode === 'git' && (
+              <div className={styles.gitArea}>
+                <input type="url" className={styles.gitInput}
+                  placeholder="https://github.com/owner/repo 或 https://gitlab.com/owner/repo"
+                  value={gitUrl} onChange={e => setGitUrl(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && handleGitDeploy()} disabled={isDeploying} autoFocus />
+                <div className={styles.gitRow}>
+                  <input type="text" className={styles.gitBranchInput}
+                    placeholder="分支名（留空默认 main）"
+                    value={gitBranch} onChange={e => setGitBranch(e.target.value)} disabled={isDeploying} />
+                  <button className="btn-primary" onClick={handleGitDeploy}
+                    disabled={isDeploying || !gitUrl.trim()}>
+                    {isDeploying ? '导入中...' : '导入并部署'}
+                  </button>
+                </div>
+                <div className={styles.gitBadges}>
+                  <span>支持：</span><code>github.com</code><code>gitlab.com</code>
+                  <span style={{opacity:0.5}}>（仅公开仓库）</span>
+                </div>
+              </div>
+            )}
+
+            {/* Terminal — 所有模式共用 */}
             <div className={styles.aiTerminal}>
-              {lines.length === 0 && (
-                <div style={{ opacity: 0.5 }}>🤖 系统待命中，请通过上面输入框指派工作任务...</div>
-              )}
+              {lines.length === 0 && <div style={{opacity:0.5}}>🤖 系统待命中，请通过上面区域指派任务...</div>}
               {lines.map((line, idx) => (
-                <div key={idx} className={styles.terminalLine} style={{ color: line.includes('🚀') ? 'var(--success)' : 'inherit' }}>
+                <div key={idx} className={styles.terminalLine}
+                  style={{color: line.includes('🚀') ? 'var(--success)' : 'inherit'}}>
                   {line}
                 </div>
               ))}
               {isDeploying && <div className={styles.typingCursor}></div>}
             </div>
+
           </div>
         </div>
       )}
