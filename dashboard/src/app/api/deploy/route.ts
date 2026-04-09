@@ -8,14 +8,14 @@ const TABLE_NAME  = process.env.TABLESTORE_ROUTER_TABLE || 'router_table';
 
 /** 生产模式：直接写入 TableStore，worker-runtime 会自动从 TableStore 读取并提供服务 */
 function buildTSClient() {
-  const endpoint  = process.env.TABLESTORE_ENDPOINT;
-  const accessKey = process.env.ALIBABA_CLOUD_ACCESS_KEY_ID;
-  if (!endpoint || !accessKey) return null;
+  const endpoint    = process.env.TABLESTORE_ENDPOINT?.trim();
+  const accessKeyId = process.env.ALIBABA_CLOUD_ACCESS_KEY_ID?.trim();
+  if (!endpoint || !accessKeyId) return null;
   return new TableStore.Client({
-    accessKeyId:     accessKey,
-    secretAccessKey: process.env.ALIBABA_CLOUD_ACCESS_KEY_SECRET,
+    accessKeyId,
+    secretAccessKey: process.env.ALIBABA_CLOUD_ACCESS_KEY_SECRET?.trim(),
     endpoint,
-    instancename:    process.env.TABLESTORE_INSTANCE_NAME || 'neodevcn',
+    instancename:    (process.env.TABLESTORE_INSTANCE_NAME || 'neodevcn').trim(),
     maxRetries:      3,
   });
 }

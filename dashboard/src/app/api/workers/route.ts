@@ -10,10 +10,10 @@ const PIPELINE_URL  = process.env.DEPLOY_PIPELINE_URL || 'http://localhost:8081'
 let tsClient: any = null;
 if (process.env.ALIBABA_CLOUD_ACCESS_KEY_ID && process.env.TABLESTORE_ENDPOINT) {
   tsClient = new TableStore.Client({
-    accessKeyId:     process.env.ALIBABA_CLOUD_ACCESS_KEY_ID,
-    secretAccessKey: process.env.ALIBABA_CLOUD_ACCESS_KEY_SECRET,
-    endpoint:        process.env.TABLESTORE_ENDPOINT,
-    instancename:    process.env.TABLESTORE_INSTANCE_NAME,
+    accessKeyId:     process.env.ALIBABA_CLOUD_ACCESS_KEY_ID.trim(),
+    secretAccessKey: process.env.ALIBABA_CLOUD_ACCESS_KEY_SECRET?.trim(),
+    endpoint:        process.env.TABLESTORE_ENDPOINT.trim(),
+    instancename:    (process.env.TABLESTORE_INSTANCE_NAME || 'neodevcn').trim(),
     maxRetries:      3,
   });
 }
