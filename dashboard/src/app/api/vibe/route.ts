@@ -2,18 +2,32 @@ import Anthropic from '@anthropic-ai/sdk';
 
 export const maxDuration = 120;
 
-const SYSTEM = `你是一个专业前端工程师，通过对话帮助用户迭代改进 HTML 单页应用。
+// ── Phase 1: Analysis system prompt ─────────────────────────────────────────
+const ANALYSIS_SYSTEM = `你是代码需求分析师。分析用户对 HTML 单页应用的修改请求，输出简洁实现计划（中文）。
 
-每次回复必须严格按以下格式：
-1. 先用 1-3 句中文说明本次做了哪些修改
-2. 紧接着输出完整更新后的 HTML，包裹在标记中（标记单独占行）：
+严格按以下格式输出（不要其他内容）：
+**将要改动：**
+• [模块/组件] — [一句话说明改动]
+• ...（2-5 条）
+
+**注意保留：**
+• [已有功能或样式，改动时不能破坏的]（若无特别注意则输出"无"）`;
+
+// ── Phase 2: Code generation system prompt ───────────────────────────────────
+const GEN_SYSTEM = `你是专业前端工程师，根据实现计划修改 HTML 单页应用。
+
+回复格式（严格按此，标记必须单独占行）：
+用 1-2 句中文说明本次做了哪些改动。
 <<<HTML>>>
 <!DOCTYPE html>
-...完整内容（CSS 和 JS 全部内联）...
+...完整更新后的 HTML（CSS 和 JS 全部内联）...
 <<<END_HTML>>>
 
-设计规范：深色系（背景 #0d0f12，主色 #6366f1），现代简洁。
-保留已有功能，只改用户要求的部分。代码健壮、有错误处理。`;
+⚠️ 关键要求：
+- 必须输出能直接运行的完整 HTML，不能省略任何已有内容
+- 保留所有已有功能，只改计划中的部分
+- 设计规范：深色系（背景 #0d0f12，主色 #6366f1），现代简洁
+- 代码健壮、有错误处理`;
 
 export async function POST(req: Request) {
   const { messages, currentCode } = await req.json() as {
@@ -24,17 +38,6 @@ export async function POST(req: Request) {
   if (!messages?.length) {
     return Response.json({ error: 'messages required' }, { status: 400 });
   }
-
-  // Inject current code into the latest user message
-  const history = messages.slice(-8); // keep last 4 turns (8 messages)
-  const last = history[history.length - 1];
-  const withCode = [
-    ...history.slice(0, -1),
-    {
-      role: 'user',
-      content: `${last.content}\n\n--- 当前完整 HTML 代码 ---\n${currentCode ?? '(空)'}`,
-    },
-  ];
 
   // No API key → mock
   if (!process.env.ANTHROPIC_API_KEY) {
@@ -53,35 +56,69 @@ export async function POST(req: Request) {
   const client  = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
   const encoder = new TextEncoder();
 
+  // Extract the latest user message for analysis
+  const history  = messages.slice(-8);
+  const lastMsg  = history[history.length - 1];
+  const userText = lastMsg?.content ?? '';
+
   const stream = new ReadableStream({
     async start(controller) {
       const send = (d: object) =>
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(d)}\n\n`));
+
       try {
-        send({ type: 'status', text: '🤖 AI 正在思考...' });
+        // ── Phase 1: Analysis ──────────────────────────────────────────────
+        send({ type: 'status', text: '📋 分析需求...' });
+
+        const analysisRes = await client.messages.create({
+          model:      'claude-haiku-4-5',
+          max_tokens: 400,
+          system:     ANALYSIS_SYSTEM,
+          messages:   [{
+            role:    'user',
+            content: `用户请求：${userText}\n\n当前代码（前 3000 字符）：\n${(currentCode ?? '').slice(0, 3000)}`,
+          }],
+        });
+        const plan = (analysisRes.content[0] as { text: string }).text.trim();
+        // Send plan as a special message type — UI will render it as a plan card
+        send({ type: 'plan', text: plan });
+
+        // ── Phase 2: Code generation (streaming) ───────────────────────────
+        send({ type: 'status', text: '⚡ 生成代码中...' });
+
+        // Build conversation history for generation, inject code + plan
+        const withContext = [
+          ...history.slice(0, -1),
+          {
+            role:    'user',
+            content: `${userText}\n\n【实现计划】\n${plan}\n\n【当前完整 HTML】\n${currentCode ?? '(空)'}`,
+          },
+        ];
 
         const cs = client.messages.stream({
           model:      process.env.CLAUDE_MODEL || 'claude-sonnet-4-5',
           max_tokens: 8192,
-          system:     SYSTEM,
+          system:     GEN_SYSTEM,
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          messages:   withCode as any,
+          messages:   withContext as any,
         });
 
         let buffer = '';
+        let sentUpTo = 0; // how many chars of explanation we've already sent
+
         cs.on('text', (chunk: string) => {
           buffer += chunk;
-          // Stream only the explanation text (before <<<HTML>>>)
           const htmlStart = buffer.indexOf('<<<HTML>>>');
           if (htmlStart === -1) {
-            // Still in explanation text — stream it
-            send({ type: 'text', text: chunk });
-          } else if (buffer.length - htmlStart < 20) {
-            // Just hit the marker — flush explanation
-            const explanation = buffer.slice(0, htmlStart).trim();
-            if (explanation) send({ type: 'flush', text: explanation });
+            // Still in explanation — stream new text
+            const newText = buffer.slice(sentUpTo);
+            if (newText) { send({ type: 'text', text: newText }); sentUpTo = buffer.length; }
+          } else if (sentUpTo < htmlStart) {
+            // Just crossed into HTML marker — flush remaining explanation
+            const remaining = buffer.slice(sentUpTo, htmlStart).trim();
+            if (remaining) send({ type: 'text', text: remaining });
+            sentUpTo = htmlStart;
           }
-          // After marker: don't stream raw HTML to chat
         });
 
         await cs.finalMessage();

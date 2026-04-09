@@ -40,7 +40,7 @@ const MONACO_OPTIONS = {
   padding:              { top: 12 },
 };
 
-interface ChatMessage { role: 'user' | 'ai' | 'status'; text: string; }
+interface ChatMessage { role: 'user' | 'ai' | 'status' | 'plan'; text: string; }
 type SaveStatus = 'saved' | 'saving' | 'unsaved';
 
 export default function VibePage({ params }: { params: Promise<{ id: string }> }) {
@@ -177,14 +177,26 @@ export default function VibePage({ params }: { params: Promise<{ id: string }> }
             if (evt.type === 'status') {
               setMessages(prev => {
                 const last = prev[prev.length - 1];
-                return last?.role === 'status' ? [...prev.slice(0, -1), { role: 'status', text: evt.text }] : [...prev, { role: 'status', text: evt.text }];
+                return last?.role === 'status'
+                  ? [...prev.slice(0, -1), { role: 'status', text: evt.text }]
+                  : [...prev, { role: 'status', text: evt.text }];
               });
+            }
+            if (evt.type === 'plan') {
+              // Replace status bubble with plan card
+              setMessages(prev =>
+                prev.filter(m => m.role !== 'status').concat({ role: 'plan', text: evt.text })
+              );
             }
             if (evt.type === 'text' || evt.type === 'flush') { aiText += evt.text; }
             if (evt.type === 'html') { newHtml = evt.html; }
             if (evt.type === 'done') {
-              // Remove status bubble, add final AI message
-              setMessages(prev => prev.filter(m => m.role !== 'status').concat({ role: 'ai', text: aiText.replace(/<<<HTML>>>[\s\S]*?<<<END_HTML>>>/g, '').trim() || '代码已更新！' }));
+              setMessages(prev =>
+                prev.filter(m => m.role !== 'status').concat({
+                  role: 'ai',
+                  text: aiText.replace(/<<<HTML>>>[\s\S]*?<<<END_HTML>>>/g, '').trim() || '✅ 代码已按计划更新！',
+                })
+              );
               if (newHtml) { setCode(newHtml); setCodeChanged(true); setLoaded(true); }
               historyRef.current = [...historyRef.current, { role: 'assistant', content: aiText }];
             }
@@ -260,9 +272,19 @@ export default function VibePage({ params }: { params: Promise<{ id: string }> }
       <aside className={styles.chatPanel}>
         <div className={styles.chatMessages}>
           {messages.map((m, i) => (
-            <div key={i} className={`${styles.msgBubble} ${m.role === 'user' ? styles.msgUser : m.role === 'status' ? styles.msgStatus : styles.msgAi}`}>
-              {m.text}
-            </div>
+            m.role === 'plan' ? (
+              <div key={i} className={styles.msgPlan}>
+                <div className={styles.msgPlanTitle}>📋 实现计划</div>
+                <div className={styles.msgPlanBody}>{m.text}</div>
+              </div>
+            ) : (
+              <div key={i} className={`${styles.msgBubble} ${
+                m.role === 'user' ? styles.msgUser :
+                m.role === 'status' ? styles.msgStatus : styles.msgAi
+              }`}>
+                {m.text}
+              </div>
+            )
           ))}
           {isStreaming && <div className={styles.msgStatus}>⏳ AI 生成中...</div>}
           <div ref={msgEndRef} />

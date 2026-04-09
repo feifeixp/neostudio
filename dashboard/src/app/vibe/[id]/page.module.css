@@ -134,6 +134,36 @@
   font-style: italic;
 }
 
+/* Plan card — shown between user request and AI code generation */
+.msgPlan {
+  align-self: flex-start;
+  width: 92%;
+  background: rgba(99, 102, 241, 0.08);
+  border: 1px solid rgba(99, 102, 241, 0.25);
+  border-radius: 10px;
+  overflow: hidden;
+  animation: slideIn 0.2s ease;
+}
+
+.msgPlanTitle {
+  padding: 7px 12px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #a5b4fc;
+  background: rgba(99, 102, 241, 0.12);
+  border-bottom: 1px solid rgba(99, 102, 241, 0.2);
+  letter-spacing: 0.03em;
+}
+
+.msgPlanBody {
+  padding: 10px 12px;
+  font-size: 0.82rem;
+  color: #94a3b8;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .chatInput {
   padding: 12px 14px;
   border-top: 1px solid rgba(255, 255, 255, 0.07);
