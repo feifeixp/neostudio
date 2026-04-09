@@ -1,0 +1,109 @@
+'use strict';
+
+const { Router, Request, Response } = require('./router');
+
+// ─── Environment variables ────────────────────────────────────────────────────
+// FC passes environment variables via process.env.
+// Set them in s.yaml under environmentVariables, or in the FC console.
+const env = {
+  UPSTREAM: process.env.UPSTREAM || 'https://example.com',
+  // Add your own vars here or read from process.env directly
+};
+
+// ─── Router setup ─────────────────────────────────────────────────────────────
+const router = new Router();
+
+// Middleware: CORS headers for all responses
+router.use((req) => {
+  // Return nothing to continue; return a Response to short-circuit
+  if (req.method === 'OPTIONS') {
+    return new Response(null, {
+      status: 204,
+      headers: corsHeaders(),
+    });
+  }
+});
+
+// ─── Routes ───────────────────────────────────────────────────────────────────
+
+// Health check
+router.get('/health', () =>
+  Response.json({ status: 'ok', ts: Date.now() })
+);
+
+// Echo request info back as JSON (useful for debugging)
+router.all('/echo', async (req) => {
+  const body = ['POST', 'PUT', 'PATCH'].includes(req.method)
+    ? await req.text()
+    : undefined;
+  return Response.json({
+    method: req.method,
+    path: req.path,
+    headers: req.headers,
+    queries: req.queries,
+    params: req.params,
+    body,
+  });
+});
+
+// Dynamic param example: /users/:id
+router.get('/users/:id', (req) =>
+  Response.json({ userId: req.params.id })
+);
+
+// Reverse proxy: forward everything under /api/* to UPSTREAM
+router.all('/api/*', async (req) => {
+  const upstream = env.UPSTREAM.replace(/\/$/, '');
+  const targetUrl = upstream + req.path + (
+    Object.keys(req.queries).length
+      ? '?' + new URLSearchParams(req.queries).toString()
+      : ''
+  );
+
+  const proxyReq = {
+    method: req.method,
+    headers: { ...req.headers, host: new URL(upstream).host },
+  };
+  if (['POST', 'PUT', 'PATCH'].includes(req.method)) {
+    proxyReq.body = await req.arrayBuffer();
+  }
+
+  const upstream_res = await fetch(targetUrl, proxyReq);
+  const resBody = await upstream_res.arrayBuffer();
+
+  return new Response(Buffer.from(resBody), {
+    status: upstream_res.status,
+    headers: {
+      ...Object.fromEntries(upstream_res.headers),
+      ...corsHeaders(),
+    },
+  });
+});
+
+// 404 fallback
+router.all('*', () => new Response('Not Found', { status: 404 }));
+
+// ─── FC entry point ───────────────────────────────────────────────────────────
+module.exports.handler = async function (req, resp, context) {
+  try {
+    const request = new Request(req);
+    const response = await router.handle(request, env);
+
+    // Inject CORS on every response
+    corsHeaders(response._headers);
+    response.send(resp);
+  } catch (err) {
+    console.error('[fc-worker] unhandled error', err);
+    resp.setStatusCode(500);
+    resp.send(JSON.stringify({ error: err.message }));
+  }
+};
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+function corsHeaders(headers) {
+  const h = headers || {};
+  h['Access-Control-Allow-Origin'] = '*';
+  h['Access-Control-Allow-Methods'] = 'GET,POST,PUT,PATCH,DELETE,OPTIONS';
+  h['Access-Control-Allow-Headers'] = 'Content-Type,Authorization,X-Requested-With';
+  return h;
+}

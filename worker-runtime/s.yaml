@@ -1,0 +1,43 @@
+edition: 3.0.0
+name: fc-worker
+access: default
+
+vars:
+  region: cn-hangzhou
+
+resources:
+  fc-worker:
+    component: fc3
+    props:
+      region: ${vars.region}
+      functionName: fc-worker
+      runtime: nodejs18
+      functionType: http
+      code: ./
+      handler: index.handler
+      memorySize: 256
+      timeout: 30
+      internetAccess: true
+      environmentVariables:
+        UPSTREAM: https://example.com
+        # Neodomain API：真实公网地址，FC 直接访问（不走 VPN）
+        NEO_API_URL: https://dev.neodomain.cn
+        # TableStore — 读取 Dashboard 部署的 worker HTML 内容
+        TABLESTORE_ENDPOINT: https://neodevcn.cn-hangzhou.ots.aliyuncs.com
+        TABLESTORE_INSTANCE_NAME: neodevcn
+        TABLESTORE_ROUTER_TABLE: router_table
+        ALIBABA_CLOUD_ACCESS_KEY_ID: LTAI5t7Ubb24a3XQfrWqNABW
+        ALIBABA_CLOUD_ACCESS_KEY_SECRET: ${env(ALIBABA_CLOUD_ACCESS_KEY_SECRET)}
+      triggers:
+        - triggerName: http
+          triggerType: http
+          triggerConfig:
+            authType: anonymous
+            methods:
+              - GET
+              - POST
+              - PUT
+              - DELETE
+              - PATCH
+              - OPTIONS
+              - HEAD

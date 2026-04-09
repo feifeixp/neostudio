@@ -1,0 +1,17 @@
+{
+  "name": "fc-worker",
+  "version": "1.0.0",
+  "description": "Alibaba Cloud FC Worker - similar to Cloudflare Workers",
+  "main": "index.js",
+  "scripts": {
+    "dev": "node dev-server.js",
+    "deploy": "s deploy"
+  },
+  "dependencies": {
+    "node-fetch": "^3.3.2",
+    "tablestore": "^5.6.3"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

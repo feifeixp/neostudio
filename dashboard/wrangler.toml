@@ -1,0 +1,13 @@
+name = "neowow-studio-dashboard"
+pages_build_output_dir = ".open-next/cloudflare"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+# 这些非敏感变量在 wrangler.toml 声明；
+# 敏感变量（API Key、AK Secret）通过 wrangler secret put 或 CF 控制台设置
+TABLESTORE_ENDPOINT = "https://neodevcn.cn-hangzhou.ots.aliyuncs.com"
+TABLESTORE_INSTANCE_NAME = "neodevcn"
+TABLESTORE_ROUTER_TABLE = "router_table"
+ALIBABA_CLOUD_ACCESS_KEY_ID = "LTAI5t7Ubb24a3XQfrWqNABW"
+DEPLOY_PIPELINE_URL = ""

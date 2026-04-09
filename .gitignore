@@ -1,0 +1,44 @@
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Environment / secrets
+.env
+.env.local
+.env.*.local
+**/.env
+**/.env.local
+# Keep examples
+!.env.example
+!**/.env.example
+
+# Build outputs
+.next/
+.open-next/
+dist/
+build/
+out/
+
+# Worker deployed code (generated at runtime)
+worker-runtime/codes/*/
+!worker-runtime/codes/.gitkeep
+
+# Shared routing table (generated at runtime)
+router-function/src/store/routes.json
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE / AI agent local config
+.claude/
+
+# Vite cache
+**/.vite/
+
+# Serverless Devs
+.s/

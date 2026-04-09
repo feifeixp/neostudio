@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>FC Worker 测试面板</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif; background: #0f1117; color: #e2e8f0; min-height: 100vh; }
+
+  header { padding: 24px 32px; border-bottom: 1px solid #1e2433; display: flex; align-items: center; gap: 12px; }
+  header h1 { font-size: 18px; font-weight: 600; }
+  .badge { background: #1a2744; color: #60a5fa; font-size: 11px; padding: 3px 8px; border-radius: 4px; font-weight: 500; }
+  .env-badge { background: #14271e; color: #34d399; font-size: 11px; padding: 3px 8px; border-radius: 4px; }
+
+  .layout { display: grid; grid-template-columns: 320px 1fr; height: calc(100vh - 65px); }
+
+  /* Sidebar */
+  .sidebar { border-right: 1px solid #1e2433; overflow-y: auto; padding: 16px 0; }
+  .section-title { font-size: 10px; font-weight: 600; color: #64748b; letter-spacing: .08em; text-transform: uppercase; padding: 8px 20px 6px; }
+  .route-item { display: flex; align-items: center; gap: 10px; padding: 10px 20px; cursor: pointer; border-left: 2px solid transparent; transition: all .15s; }
+  .route-item:hover { background: #161b27; }
+  .route-item.active { background: #0d1829; border-left-color: #3b82f6; }
+  .method { font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 3px; min-width: 44px; text-align: center; letter-spacing: .03em; }
+  .GET    { background:#0d3321; color:#34d399; }
+  .POST   { background:#2d1d03; color:#f59e0b; }
+  .ALL    { background:#1e1033; color:#a78bfa; }
+  .route-path { font-size: 13px; font-family: 'SF Mono', monospace; color: #cbd5e1; }
+
+  /* Main */
+  .main { display: flex; flex-direction: column; overflow: hidden; }
+
+  .request-panel { padding: 24px 28px; border-bottom: 1px solid #1e2433; }
+  .request-panel h2 { font-size: 14px; font-weight: 600; margin-bottom: 16px; color: #94a3b8; }
+  .url-bar { display: flex; gap: 8px; margin-bottom: 14px; }
+  .url-bar select { background: #161b27; border: 1px solid #2a3347; color: #e2e8f0; padding: 8px 10px; border-radius: 6px; font-size: 13px; font-weight: 700; min-width: 80px; }
+  .url-bar input { flex: 1; background: #161b27; border: 1px solid #2a3347; color: #e2e8f0; padding: 8px 12px; border-radius: 6px; font-size: 13px; font-family: 'SF Mono', monospace; }
+  .url-bar input:focus { outline: none; border-color: #3b82f6; }
+  .row { display: flex; gap: 10px; margin-bottom: 10px; align-items: flex-start; }
+  .row label { font-size: 12px; color: #64748b; min-width: 60px; padding-top: 8px; }
+  .row textarea { flex: 1; background: #161b27; border: 1px solid #2a3347; color: #e2e8f0; padding: 8px 12px; border-radius: 6px; font-size: 12px; font-family: 'SF Mono', monospace; min-height: 72px; resize: vertical; }
+  .row textarea:focus { outline: none; border-color: #3b82f6; }
+  .row input { flex: 1; background: #161b27; border: 1px solid #2a3347; color: #e2e8f0; padding: 8px 12px; border-radius: 6px; font-size: 12px; font-family: 'SF Mono', monospace; }
+  .row input:focus { outline: none; border-color: #3b82f6; }
+  .btn-send { background: #2563eb; color: white; border: none; padding: 9px 20px; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; transition: background .15s; }
+  .btn-send:hover { background: #1d4ed8; }
+  .btn-send:disabled { background: #1e2433; color: #475569; cursor: not-allowed; }
+
+  /* Response */
+  .response-panel { flex: 1; overflow: hidden; display: flex; flex-direction: column; padding: 0; }
+  .resp-header { display: flex; align-items: center; gap: 12px; padding: 14px 28px; border-bottom: 1px solid #1e2433; }
+  .resp-header h2 { font-size: 13px; font-weight: 600; color: #94a3b8; }
+  .status-chip { font-size: 12px; font-weight: 700; padding: 3px 10px; border-radius: 4px; }
+  .status-2xx { background: #0d3321; color: #34d399; }
+  .status-4xx { background: #2d1205; color: #f87171; }
+  .status-5xx { background: #2d0a1a; color: #fb7185; }
+  .resp-time { font-size: 11px; color: #475569; margin-left: auto; }
+  .resp-body { flex: 1; overflow-y: auto; padding: 20px 28px; }
+  pre { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 13px; line-height: 1.7; color: #e2e8f0; white-space: pre-wrap; word-break: break-all; }
+  .empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; color: #334155; gap: 8px; }
+  .empty-state svg { opacity: .3; }
+  .empty-state p { font-size: 14px; }
+
+  /* Target switcher */
+  .target-bar { display: flex; align-items: center; gap: 8px; padding: 10px 28px; background: #0a0f1a; border-bottom: 1px solid #1e2433; font-size: 12px; }
+  .target-bar span { color: #64748b; }
+  .target-group { display: flex; border: 1px solid #1e2433; border-radius: 6px; overflow: hidden; }
+  .target-btn { padding: 4px 12px; font-size: 11px; font-weight: 600; cursor: pointer; border: none; transition: all .15s; }
+  .target-btn.active { background: #1e3a5f; color: #60a5fa; }
+  .target-btn:not(.active) { background: transparent; color: #475569; }
+  .target-btn:hover:not(.active) { background: #161b27; color: #94a3b8; }
+  .live-url { font-family: monospace; font-size: 11px; color: #3b82f6; margin-left: 6px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>⚡ FC Worker 测试面板</h1>
+  <span class="badge">FC3 · Node.js 18</span>
+  <span class="env-badge" id="target-label">● 本地 :3000</span>
+</header>
+
+<div class="layout">
+  <aside class="sidebar">
+    <div class="section-title">基础路由</div>
+    <div class="route-item active" data-method="GET" data-path="/health">
+      <span class="method GET">GET</span><span class="route-path">/health</span>
+    </div>
+    <div class="route-item" data-method="GET" data-path="/users/:id" data-fill="/users/42">
+      <span class="method GET">GET</span><span class="route-path">/users/:id</span>
+    </div>
+    <div class="route-item" data-method="GET" data-path="/echo">
+      <span class="method GET">GET</span><span class="route-path">/echo</span>
+    </div>
+    <div class="route-item" data-method="POST" data-path="/echo" data-body='{"hello":"world"}'>
+      <span class="method POST">POST</span><span class="route-path">/echo</span>
+    </div>
+
+    <div class="section-title" style="margin-top:8px">代理路由</div>
+    <div class="route-item" data-method="GET" data-path="/api/test">
+      <span class="method ALL">GET</span><span class="route-path">/api/*</span>
+    </div>
+
+    <div class="section-title" style="margin-top:8px">边界测试</div>
+    <div class="route-item" data-method="OPTIONS" data-path="/health">
+      <span class="method ALL">OPT</span><span class="route-path">CORS 预检</span>
+    </div>
+    <div class="route-item" data-method="GET" data-path="/not-found">
+      <span class="method GET">GET</span><span class="route-path">/not-found (404)</span>
+    </div>
+  </aside>
+
+  <div class="main">
+    <div class="target-bar">
+      <span>目标：</span>
+      <div class="target-group">
+        <button class="target-btn active" id="btn-local" onclick="setTarget('local')">本地</button>
+        <button class="target-btn" id="btn-live" onclick="setTarget('live')">线上 FC</button>
+      </div>
+      <span class="live-url" id="live-url-label">https://fc-worker-dnqpfnoxtc.cn-hangzhou.fcapp.run</span>
+    </div>
+
+    <div class="request-panel">
+      <div class="url-bar">
+        <select id="method-select">
+          <option>GET</option><option>POST</option><option>PUT</option>
+          <option>PATCH</option><option>DELETE</option><option>OPTIONS</option>
+        </select>
+        <input id="path-input" value="/health" placeholder="/path?query=value" />
+        <button class="btn-send" id="send-btn" onclick="sendRequest()">发送</button>
+      </div>
+      <div class="row">
+        <label>Headers</label>
+        <input id="headers-input" placeholder='Content-Type: application/json' />
+      </div>
+      <div class="row">
+        <label>Body</label>
+        <textarea id="body-input" placeholder='{"key": "value"}'></textarea>
+      </div>
+    </div>
+
+    <div class="response-panel">
+      <div class="resp-header">
+        <h2>响应</h2>
+        <span id="status-chip"></span>
+        <span class="resp-time" id="resp-time"></span>
+      </div>
+      <div class="resp-body">
+        <div class="empty-state" id="empty-state">
+          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+          <p>点击左侧路由或发送按钮</p>
+        </div>
+        <pre id="response-body" style="display:none"></pre>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const TARGETS = {
+  local: 'http://localhost:3000',
+  live:  'https://fc-worker-dnqpfnoxtc.cn-hangzhou.fcapp.run',
+};
+let currentTarget = 'local';
+
+function setTarget(t) {
+  currentTarget = t;
+  document.getElementById('btn-local').classList.toggle('active', t === 'local');
+  document.getElementById('btn-live').classList.toggle('active', t === 'live');
+  document.getElementById('target-label').textContent = t === 'local' ? '● 本地 :3000' : '● 线上 FC';
+  document.getElementById('target-label').style.color = t === 'local' ? '#34d399' : '#f59e0b';
+}
+
+document.querySelectorAll('.route-item').forEach(el => {
+  el.addEventListener('click', () => {
+    document.querySelectorAll('.route-item').forEach(e => e.classList.remove('active'));
+    el.classList.add('active');
+    document.getElementById('method-select').value = el.dataset.method;
+    document.getElementById('path-input').value    = el.dataset.fill || el.dataset.path;
+    document.getElementById('body-input').value    = el.dataset.body ? JSON.stringify(JSON.parse(el.dataset.body), null, 2) : '';
+    document.getElementById('headers-input').value = el.dataset.method === 'POST' ? 'Content-Type: application/json' : '';
+  });
+});
+
+async function sendRequest() {
+  const method  = document.getElementById('method-select').value;
+  const path    = document.getElementById('path-input').value;
+  const bodyTxt = document.getElementById('body-input').value.trim();
+  const hdrTxt  = document.getElementById('headers-input').value.trim();
+  const btn     = document.getElementById('send-btn');
+
+  const headers = {};
+  hdrTxt.split('\n').filter(Boolean).forEach(line => {
+    const [k, ...v] = line.split(':');
+    if (k) headers[k.trim()] = v.join(':').trim();
+  });
+
+  const opts = { method, headers };
+  if (bodyTxt && !['GET','HEAD','OPTIONS'].includes(method)) opts.body = bodyTxt;
+
+  btn.disabled = true;
+  btn.textContent = '请求中…';
+  const t0 = Date.now();
+
+  try {
+    const res  = await fetch(TARGETS[currentTarget] + path, opts);
+    const ms   = Date.now() - t0;
+    const text = await res.text();
+
+    let display;
+    try { display = JSON.stringify(JSON.parse(text), null, 2); } catch { display = text; }
+
+    const chip = document.getElementById('status-chip');
+    chip.textContent = res.status + ' ' + res.statusText;
+    chip.className = 'status-chip ' + (res.status < 300 ? 'status-2xx' : res.status < 500 ? 'status-4xx' : 'status-5xx');
+    document.getElementById('resp-time').textContent = ms + ' ms';
+
+    document.getElementById('empty-state').style.display = 'none';
+    const pre = document.getElementById('response-body');
+    pre.style.display = 'block';
+    pre.textContent = display;
+  } catch(e) {
+    document.getElementById('empty-state').style.display = 'none';
+    const pre = document.getElementById('response-body');
+    pre.style.display = 'block';
+    pre.textContent = 'Error: ' + e.message;
+    document.getElementById('status-chip').textContent = 'Network Error';
+    document.getElementById('status-chip').className = 'status-chip status-5xx';
+  }
+
+  btn.disabled = false;
+  btn.textContent = '发送';
+}
+</script>
+</body>
+</html>

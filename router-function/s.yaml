@@ -1,0 +1,35 @@
+edition: 3.0.0
+name: worker-router
+# 配置访问凭证：运行 `s config add` 后填写别名
+access: default
+vars:
+  region: cn-shanghai
+  service: worker-platform
+resources:
+  router:
+    component: fc3
+    props:
+      region: ${vars.region}
+      functionName: worker-router
+      runtime: nodejs18
+      functionType: http          # HTTP 函数：handler(req, resp, context) 流式接口
+      handler: src/index.handler
+      code: ./
+      timeout: 30                 # 路由函数超时须 > worker 函数超时
+      memorySize: 512
+      environmentVariables:
+        FC_REGION: cn-shanghai
+        # 以下在 FC 控制台或 .env 文件中配置（不提交到 git）
+        # ALIBABA_CLOUD_ACCESS_KEY_ID: ""
+        # ALIBABA_CLOUD_ACCESS_KEY_SECRET: ""
+        # FC_ACCOUNT_ID: ""
+        # FC_DEFAULT_SERVICE: "worker-service"
+        # TABLESTORE_ENDPOINT: ""
+        # TABLESTORE_INSTANCE_NAME: ""
+        # TABLESTORE_ROUTER_TABLE: "router_table"
+      triggers:
+        - triggerName: http-trigger
+          triggerType: http
+          triggerConfig:
+            authType: anonymous
+            methods: [GET, POST, PUT, DELETE, PATCH, OPTIONS, HEAD]
