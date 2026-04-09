@@ -273,11 +273,11 @@ module.exports.handler = async function (event, context) {
 };
 
 // ─── TableStore fallback: fetch worker content stored by dashboard deploy ─────
+//
+// Always returns the stored HTML regardless of request path (SPA mode).
+// This ensures JS/CSS asset requests don't leak into the built-in router and
+// get served as HTML with a wrong MIME type.
 async function tryServeWorkerFromTableStore(workerId, requestPath) {
-  // Only serve root / index.html from TableStore (no multi-file support yet)
-  const clean = (requestPath || '/').split('?')[0];
-  if (clean !== '/' && clean !== '/index.html' && clean !== '') return null;
-
   const client = getTSClient();
   if (!client) return null;
 
@@ -285,21 +285,41 @@ async function tryServeWorkerFromTableStore(workerId, requestPath) {
   try {
     const data = await new Promise((resolve, reject) => {
       client.getRow({
-        tableName:      TABLE_NAME,
-        primaryKey:     [{ workerName: workerId }],
-        columnsToGet:   ['content', 'contentType'],
+        tableName:    TABLE_NAME,
+        primaryKey:   [{ workerName: workerId }],
+        columnsToGet: ['content', 'contentType'],
       }, (err, result) => (err ? reject(err) : resolve(result)));
     });
 
     const attrs   = (data?.row?.attributes || []);
     const content = attrs.find(a => a.columnName === 'content')?.columnValue;
-    if (!content) return null;
+    if (!content) return null;   // worker not in TableStore → fall through
+
+    // For asset paths (e.g. .js, .css, .png) return 404 — better than returning
+    // HTML with a wrong MIME type which causes browser module-load errors.
+    // Paths with no extension or .html/.htm extension are treated as SPA routes
+    // and still get the main HTML for client-side routing.
+    const clean       = (requestPath || '/').split('?')[0];
+    const lastSegment = clean.split('/').pop() || '';
+    const dotIdx      = lastSegment.lastIndexOf('.');
+    const ext         = dotIdx > 0 ? lastSegment.slice(dotIdx + 1).toLowerCase() : '';
+    const isAsset     = ext !== '' && ext !== 'html' && ext !== 'htm';
+    if (isAsset) {
+      // Return 404 for asset paths — better than wrong-MIME HTML
+      console.log(`[worker-runtime] Asset 404 for "${workerId}" path="${clean}"`);
+      return {
+        statusCode: 404,
+        headers: { 'Content-Type': 'text/plain', ...corsHeaders() },
+        body: Buffer.from('Not found').toString('base64'),
+        isBase64Encoded: true,
+      };
+    }
 
     const contentType = attrs.find(a => a.columnName === 'contentType')?.columnValue
                      || 'text/html';
     const buf = Buffer.isBuffer(content) ? content : Buffer.from(content, 'utf8');
 
-    console.log(`[worker-runtime] Serving "${workerId}" from TableStore (${buf.length} bytes)`);
+    console.log(`[worker-runtime] Serving "${workerId}" from TableStore path="${clean}" (${buf.length} bytes)`);
     return {
       statusCode:      200,
       headers: {
