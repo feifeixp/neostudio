@@ -25,16 +25,16 @@ export default {
       return new Response(null, { status: 204, headers: corsHeaders() });
     }
 
-    // ── app.neowow.studio → Dashboard (Cloudflare Pages) ────────────────────────
+    // ── app.neowow.studio → Dashboard (Cloudflare Workers) ─────────────────────
     if (host === 'app.neowow.studio') {
-      const pagesUrl = new URL(request.url);
-      pagesUrl.hostname = 'neowow-studio-dashboard.pages.dev';
-      const pagesReq = new Request(pagesUrl.toString(), {
+      const workerUrl = new URL(request.url);
+      workerUrl.hostname = 'neowow-studio-dashboard.feifeixp.workers.dev';
+      const workerReq = new Request(workerUrl.toString(), {
         method:  request.method,
-        headers: new Headers({ ...Object.fromEntries(request.headers), host: 'app.neowow.studio' }),
+        headers: new Headers({ ...Object.fromEntries(request.headers), host: 'neowow-studio-dashboard.feifeixp.workers.dev' }),
         body:    request.method !== 'GET' && request.method !== 'HEAD' ? request.body : undefined,
       });
-      return fetch(pagesReq);
+      return fetch(workerReq);
     }
 
     // ── *.neowow.studio 子域名路由：{workerName}.neowow.studio → Worker ─────────

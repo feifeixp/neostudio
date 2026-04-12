@@ -1,0 +1,13 @@
+diff --git a/node_modules/tablestore/lib/protocol/plian_buffer_builder.js b/node_modules/tablestore/lib/protocol/plian_buffer_builder.js
+index d9e6119..da53117 100644
+--- a/node_modules/tablestore/lib/protocol/plian_buffer_builder.js
++++ b/node_modules/tablestore/lib/protocol/plian_buffer_builder.js
+@@ -91,7 +91,7 @@ TableStore.PlainBufferBuilder = {
+     computePrimaryKeySize: function (primaryKeys) {
+         var size = 1;
+         for (var i = 0; i < primaryKeys.length; i++) {
+-            for (key in primaryKeys[i]) {
++            for (var key in primaryKeys[i]) {
+                 size += this.computePrimaryKeyColumnSize(key, primaryKeys[i][key]);
+             }
+         }

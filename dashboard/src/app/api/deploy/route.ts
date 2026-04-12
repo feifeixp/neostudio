@@ -33,10 +33,7 @@ async function deployToTableStore(
     tsClient.putRow(
       {
         tableName: TABLE_NAME,
-        condition: new TableStore.Condition(
-          TableStore.RowExistenceExpectation.IGNORE,
-          null,
-        ),
+        condition: { rowExistenceExpectation: 0, columnCondition: null },
         primaryKey:       [{ workerName }],
         attributeColumns: [
           { functionName: `worker-${workerName}` },

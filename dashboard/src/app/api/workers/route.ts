@@ -8,12 +8,14 @@ const PUBLIC_DOMAIN = 'neowow.studio';
 const CF_PROXY      = 'https://neo-proxy.feifeixp.workers.dev';
 const PIPELINE_URL  = process.env.DEPLOY_PIPELINE_URL || 'http://localhost:8081';
 
-let tsClient: any = null;
-if (process.env.ALIBABA_CLOUD_ACCESS_KEY_ID && process.env.TABLESTORE_ENDPOINT) {
-  tsClient = new TableStore.Client({
-    accessKeyId:     process.env.ALIBABA_CLOUD_ACCESS_KEY_ID.trim(),
+function buildTSClient() {
+  const endpoint    = process.env.TABLESTORE_ENDPOINT?.trim();
+  const accessKeyId = process.env.ALIBABA_CLOUD_ACCESS_KEY_ID?.trim();
+  if (!endpoint || !accessKeyId) return null;
+  return new TableStore.Client({
+    accessKeyId,
     secretAccessKey: process.env.ALIBABA_CLOUD_ACCESS_KEY_SECRET?.trim(),
-    endpoint:        process.env.TABLESTORE_ENDPOINT.trim(),
+    endpoint,
     instancename:    (process.env.TABLESTORE_INSTANCE_NAME || 'neodevcn').trim(),
     maxRetries:      3,
   });
@@ -26,6 +28,7 @@ function workerPublicUrl(name: string, stored?: string): string {
 }
 
 export async function GET(): Promise<NextResponse> {
+  const tsClient = buildTSClient();
   // ── Production: TableStore ───────────────────────────────────────────────────
   if (tsClient) {
     return new Promise<NextResponse>((resolve) => {
@@ -70,16 +73,24 @@ export async function GET(): Promise<NextResponse> {
         ...w,
         url: w.url?.includes('localhost') ? w.url : workerPublicUrl(w.name, w.url),
       }));
-      return NextResponse.json({ workers });
+      // Pass through stats from pipeline (already computed there)
+      const stats = data.stats || {
+        totalWorkers:  workers.length,
+        activeWorkers: workers.filter((w: any) => w.status === 'active').length,
+        draftWorkers:  workers.filter((w: any) => w.status === 'draft').length,
+      };
+      return NextResponse.json({ workers, stats });
     }
   } catch (_) { /* fall through */ }
 
   // ── Fallback: mock ───────────────────────────────────────────────────────────
+  const mockWorkers = [
+    { id: 'api-gateway',    name: 'api-gateway',    url: `${CF_PROXY}/w/api-gateway`,    status: 'active',    requests: '120 万', latency: '45ms'  },
+    { id: 'my-resume-site', name: 'my-resume-site', url: `${CF_PROXY}/w/my-resume-site`, status: 'active',    requests: '1.2 万', latency: '12ms'  },
+    { id: 'web-scraper',    name: 'web-scraper',    url: `${CF_PROXY}/w/web-scraper`,    status: 'suspended', requests: '45 万',  latency: '320ms' },
+  ];
   return NextResponse.json({
-    workers: [
-      { id: 'api-gateway',    name: 'api-gateway',    url: `${CF_PROXY}/w/api-gateway`,    status: 'active',    requests: '120 万', latency: '45ms'  },
-      { id: 'my-resume-site', name: 'my-resume-site', url: `${CF_PROXY}/w/my-resume-site`, status: 'active',    requests: '1.2 万', latency: '12ms'  },
-      { id: 'web-scraper',    name: 'web-scraper',    url: `${CF_PROXY}/w/web-scraper`,    status: 'suspended', requests: '45 万',  latency: '320ms' },
-    ],
+    workers: mockWorkers,
+    stats: { totalWorkers: 3, activeWorkers: 2, draftWorkers: 0 },
   });
 }

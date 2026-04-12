@@ -104,16 +104,106 @@ app.get('/workers', (req, res) => {
     const workers = Object.values(routes).map((r) => ({
       id:         r.workerName,
       name:       r.workerName,
-      url:        `http://${r.workerName}.localhost:8080`,
+      url:        r.status === 'draft' ? '' : `http://${r.workerName}.localhost:8080`,
       status:     r.status || 'active',
+      templateId: r.templateId || null,
       deployedAt: r.deployedAt || null,
+      updatedAt:  r.updatedAt  || null,
       requests:   '~',
       latency:    '~',
     }));
-    return res.json({ workers });
+    // Return stats as well
+    const totalWorkers  = workers.length;
+    const activeWorkers = workers.filter(w => w.status === 'active').length;
+    const draftWorkers  = workers.filter(w => w.status === 'draft').length;
+    return res.json({ workers, stats: { totalWorkers, activeWorkers, draftWorkers } });
   } catch (_) {
-    return res.json({ workers: [] });
+    return res.json({ workers: [], stats: { totalWorkers: 0, activeWorkers: 0, draftWorkers: 0 } });
   }
+});
+
+/**
+ * GET /workers/:workerName
+ * Returns a single worker's full record (including content for Vibe editor)
+ */
+app.get('/workers/:workerName', (req, res) => {
+  const { workerName } = req.params;
+  try {
+    const routes = JSON.parse(fs.readFileSync(ROUTES_FILE, 'utf8'));
+    const r = routes[workerName];
+    if (!r) return res.status(404).json({ error: 'Not found' });
+
+    // Try to read persisted HTML content
+    let content = r.content || '';
+    if (!content) {
+      const htmlPath = path.join(CODES_DIR, workerName, 'index.html');
+      try { content = fs.readFileSync(htmlPath, 'utf8'); } catch (_) {}
+    }
+
+    return res.json({
+      worker: {
+        id:         r.workerName,
+        name:       r.workerName,
+        url:        r.status === 'draft' ? '' : `http://${r.workerName}.localhost:8080`,
+        status:     r.status     || 'active',
+        templateId: r.templateId || null,
+        deployedAt: r.deployedAt || null,
+        updatedAt:  r.updatedAt  || null,
+        content,
+      },
+    });
+  } catch (_) {
+    return res.status(500).json({ error: 'Failed to read worker data' });
+  }
+});
+
+/**
+ * POST /draft
+ * Body: { workerName, templateId, code }
+ * Saves a draft entry to routes.json + the HTML file to codes/
+ */
+app.post('/draft', (req, res) => {
+  const { workerName, templateId, code } = req.body;
+  if (!workerName) return res.status(400).json({ error: 'Missing workerName' });
+
+  // Save HTML file locally so it can be loaded by the editor later
+  if (code) {
+    try {
+      saveWorkerCodeLocally(workerName, [{ name: 'index.html', content: code }]);
+    } catch (err) {
+      console.warn('[Pipeline] Draft local save failed:', err.message);
+    }
+  }
+
+  // Persist draft entry in routes.json
+  let routes = {};
+  try { routes = JSON.parse(fs.readFileSync(ROUTES_FILE, 'utf8')); } catch (_) {}
+
+  const existing = routes[workerName] || {};
+  routes[workerName] = {
+    ...existing,
+    workerName,
+    workerId:   workerName,
+    type:       'static',
+    status:     'draft',
+    templateId: templateId || existing.templateId || 'blank',
+    updatedAt:  new Date().toISOString(),
+    // Keep deployedAt if already published
+    deployedAt: existing.deployedAt || null,
+    // Store content inline for easy retrieval (trimmed to avoid huge files)
+    content:    code ? code.slice(0, 500_000) : (existing.content || ''),
+  };
+
+  try {
+    fs.mkdirSync(path.dirname(ROUTES_FILE), { recursive: true });
+    fs.writeFileSync(ROUTES_FILE, JSON.stringify(routes, null, 2), 'utf8');
+    console.log(`[Pipeline] Draft saved for "${workerName}"`);
+  } catch (err) {
+    console.warn('[Pipeline] Could not write routes.json:', err.message);
+    return res.status(500).json({ error: 'Failed to save draft' });
+  }
+
+  return res.json({ ok: true, workerName });
 });
 
 /**

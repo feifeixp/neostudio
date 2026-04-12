@@ -14,11 +14,11 @@ const SYSTEM_PROMPT = `你是一个专业的前端工程师，擅长生成高质
 4. 只输出代码，不要任何解释文字，不要 markdown 代码块包裹
 5. 代码从 <!DOCTYPE html> 开始`;
 
-/** AI 对话助手模式 — 生成带真实 Claude 聊天界面的单文件页面 */
+/** AI 对话助手模式 — 生成带真实 Neodomain 大模型聊天界面的单文件页面 */
 const AI_ASSISTANT_SYSTEM_PROMPT = `你是一个专业的前端工程师，擅长生成 AI 对话助手界面。
 
 用户会描述他们想要的 AI 助手，你需要生成一个完整的、可直接运行的单文件 HTML 应用。
-该应用必须实现真实可用的 AI 对话功能，通过以下代理 API 与 Claude 通信：
+该应用必须实现真实可用的 AI 对话功能，通过以下代理 API 与 Neodomain 大模型或者类似模型通信：
 
 === API 规范 ===
 接口：POST https://neo-proxy.feifeixp.workers.dev/api/chat

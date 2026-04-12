@@ -6,12 +6,14 @@ const TableStore = require('tablestore') as any;
 const CF_PROXY     = 'https://neo-proxy.feifeixp.workers.dev';
 const PIPELINE_URL = process.env.DEPLOY_PIPELINE_URL || 'http://localhost:8081';
 
-let tsClient: any = null;
-if (process.env.ALIBABA_CLOUD_ACCESS_KEY_ID && process.env.TABLESTORE_ENDPOINT) {
-  tsClient = new TableStore.Client({
-    accessKeyId:     process.env.ALIBABA_CLOUD_ACCESS_KEY_ID.trim(),
+function buildTSClient() {
+  const endpoint    = process.env.TABLESTORE_ENDPOINT?.trim();
+  const accessKeyId = process.env.ALIBABA_CLOUD_ACCESS_KEY_ID?.trim();
+  if (!endpoint || !accessKeyId) return null;
+  return new TableStore.Client({
+    accessKeyId,
     secretAccessKey: process.env.ALIBABA_CLOUD_ACCESS_KEY_SECRET?.trim(),
-    endpoint:        process.env.TABLESTORE_ENDPOINT.trim(),
+    endpoint,
     instancename:    (process.env.TABLESTORE_INSTANCE_NAME || 'neodevcn').trim(),
     maxRetries:      3,
   });
@@ -27,6 +29,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
+  const tsClient = buildTSClient();
 
   // ── Production: read directly from TableStore ──────────────────────────────
   if (tsClient) {
@@ -54,11 +57,10 @@ export async function GET(
 
   // ── Local dev: deploy-pipeline ─────────────────────────────────────────────
   try {
-    const res  = await fetch(`${PIPELINE_URL}/workers`, { cache: 'no-store' });
+    const res  = await fetch(`${PIPELINE_URL}/workers/${encodeURIComponent(id)}`, { cache: 'no-store' });
+    if (!res.ok) return NextResponse.json({ error: 'Not found' }, { status: 404 });
     const data = await res.json();
-    const worker = (data.workers || []).find((w: any) => w.id === id || w.name === id);
-    if (!worker) return NextResponse.json({ error: 'Not found' }, { status: 404 });
-    return NextResponse.json({ worker });
+    return NextResponse.json(data);
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }

@@ -5,18 +5,21 @@ export const maxDuration = 60;
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const TableStore = require('tablestore') as any;
 
-let tsClient: any = null;
-if (process.env.ALIBABA_CLOUD_ACCESS_KEY_ID && process.env.TABLESTORE_ENDPOINT) {
-  tsClient = new TableStore.Client({
-    accessKeyId:     process.env.ALIBABA_CLOUD_ACCESS_KEY_ID.trim(),
+function buildTSClient() {
+  const endpoint    = process.env.TABLESTORE_ENDPOINT?.trim();
+  const accessKeyId = process.env.ALIBABA_CLOUD_ACCESS_KEY_ID?.trim();
+  if (!endpoint || !accessKeyId) return null;
+  return new TableStore.Client({
+    accessKeyId,
     secretAccessKey: process.env.ALIBABA_CLOUD_ACCESS_KEY_SECRET?.trim(),
-    endpoint:        process.env.TABLESTORE_ENDPOINT.trim(),
+    endpoint,
     instancename:    (process.env.TABLESTORE_INSTANCE_NAME || 'neodevcn').trim(),
     maxRetries:      3,
   });
 }
 
 async function getWorkerContent(workerId: string): Promise<string> {
+  const tsClient = buildTSClient();
   if (!tsClient) return '';
   try {
     const TABLE_NAME = (process.env.TABLESTORE_ROUTER_TABLE || 'router_table').trim();

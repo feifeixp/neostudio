@@ -37,10 +37,7 @@ export async function POST(req: Request) {
         tsClient.putRow(
           {
             tableName: TABLE_NAME,
-            condition:  new TableStore.Condition(
-              TableStore.RowExistenceExpectation.IGNORE,
-              null,
-            ),
+            condition:  { rowExistenceExpectation: 0, columnCondition: null },
             primaryKey:       [{ workerName }],
             attributeColumns: [
               { status:     'draft'                    },
@@ -55,8 +52,20 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true, workerName });
     }
 
-    // Local dev: no-op, just return ok so the UI isn't blocked
-    return NextResponse.json({ ok: true, workerName, local: true });
+    // Local dev: proxy to deploy-pipeline's /draft endpoint
+    const pipelineUrl = process.env.DEPLOY_PIPELINE_URL || 'http://127.0.0.1:8081';
+    try {
+      const pRes = await fetch(`${pipelineUrl}/draft`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ workerName, templateId, code }),
+      });
+      const pData = await pRes.json();
+      return NextResponse.json(pData, { status: pRes.status });
+    } catch (_) {
+      // Pipeline not running — silently succeed so the UI isn't blocked
+      return NextResponse.json({ ok: true, workerName, local: true });
+    }
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     return NextResponse.json({ error: msg }, { status: 500 });
