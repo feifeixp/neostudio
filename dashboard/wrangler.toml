@@ -10,7 +10,7 @@ assets = { directory = ".open-next/assets", binding = "ASSETS" }
 TABLESTORE_ENDPOINT = "https://neodevcn.cn-hangzhou.ots.aliyuncs.com"
 TABLESTORE_INSTANCE_NAME = "neodevcn"
 TABLESTORE_ROUTER_TABLE = "router_table"
-ALIBABA_CLOUD_ACCESS_KEY_ID = "LTAI5t7Ubb24a3XQfrWqNABW"
+ALIBABA_CLOUD_ACCESS_KEY_ID = "<YOUR_ALIBABA_ACCESS_KEY_ID>"
 DEPLOY_PIPELINE_URL = ""
 
 # 通过 wrangler secret put 设置（不入库）:
