@@ -1,0 +1,16 @@
+{
+  "name": "neodomain-cli",
+  "version": "1.0.0",
+  "description": "AI-friendly CLI for interacting with Neodomain APIs",
+  "main": "bin/neodomain.js",
+  "bin": {
+    "neodomain": "./bin/neodomain.js"
+  },
+  "type": "module",
+  "scripts": {
+    "start": "node ./bin/neodomain.js"
+  },
+  "keywords": ["ai", "cli", "neodomain"],
+  "author": "Neodomain",
+  "license": "ISC"
+}

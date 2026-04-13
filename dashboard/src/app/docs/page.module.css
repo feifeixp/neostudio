@@ -1,0 +1,130 @@
+.container {
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 40px 20px;
+  animation: fadeIn 0.4s ease-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.header {
+  margin-bottom: 40px;
+  text-align: center;
+}
+
+.header h1 {
+  font-size: 2.5rem;
+  background: linear-gradient(135deg, #6366f1, #a78bfa);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  margin-bottom: 12px;
+}
+
+.header p {
+  color: var(--text-secondary, #94a3b8);
+  font-size: 1.1rem;
+}
+
+.tabs {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 30px;
+  border-bottom: 1px solid rgba(255,255,255,0.1);
+  padding-bottom: 10px;
+}
+
+.tabBtn {
+  background: transparent;
+  border: none;
+  font-size: 1rem;
+  padding: 10px 20px;
+  color: var(--text-secondary, #94a3b8);
+  cursor: pointer;
+  border-radius: 8px;
+  transition: 0.2s;
+}
+
+.tabBtn:hover {
+  background: rgba(255,255,255,0.05);
+}
+
+.tabBtnActive {
+  background: rgba(99,102,241,0.15);
+  color: #a5b4fc;
+  font-weight: 600;
+}
+
+.contentArea {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 16px;
+  padding: 32px;
+  min-height: 400px;
+}
+
+.contentArea h2 {
+  font-size: 1.5rem;
+  margin-bottom: 20px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.section {
+  margin-bottom: 30px;
+}
+
+.section h3 {
+  font-size: 1.2rem;
+  color: #e2e8f0;
+  margin-bottom: 12px;
+  border-left: 3px solid #6366f1;
+  padding-left: 10px;
+}
+
+.codeBlock {
+  background: #0d1117;
+  padding: 16px;
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,0.1);
+  font-family: 'Fira Code', 'JetBrains Mono', monospace;
+  font-size: 0.9rem;
+  color: #c9d1d9;
+  overflow-x: auto;
+  line-height: 1.5;
+  margin-bottom: 16px;
+}
+
+.tokenAlert {
+  background: rgba(99,102,241,0.1);
+  border: 1px solid rgba(99,102,241,0.3);
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 24px;
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.tokenAlert span {
+  font-size: 1.5rem;
+}
+
+.tokenAlert p {
+  margin: 0 0 8px 0;
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+
+.tokenBox {
+  background: rgba(0,0,0,0.3);
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-family: monospace;
+  word-break: break-all;
+  font-size: 0.85rem;
+  color: #a5b4fc;
+}
