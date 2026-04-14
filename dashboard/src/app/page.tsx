@@ -33,7 +33,81 @@ function relativeTime(iso?: string): string {
 }
 
 type ImportTab = 'upload' | 'git';
-const ALLOWED_EXTS = /\.(html?|css|js|jsx|ts|tsx|json|md|txt|svg|ico|xml|ya?ml|webmanifest)$/i;
+const ALLOWED_EXTS = /\.(html?|css|js|jsx|ts|tsx|json|md|txt|svg|ico|xml|ya?ml|webmanifest|png|jpe?g|gif|webp)$/i;
+const IMAGE_EXTS   = /\.(png|jpe?g|gif|webp|ico)$/i;
+
+type UploadFile = { name: string; content: string; encoding?: 'utf8' | 'base64' };
+
+/**
+ * Replace relative image/font refs in HTML (src, href, url()) with full OSS URLs.
+ * Called after OSS upload so we have the real public URLs.
+ */
+function rewriteBinaryRefs(
+  html: string,
+  htmlDir: string,
+  assetsMap: Record<string, string>, // { filePath → ossUrl }
+): string {
+  const resolve = (ref: string): string | null => {
+    if (/^(https?:\/\/|\/\/|\/|data:)/.test(ref)) return null;
+    const clean = ref.replace(/^\.\//, '').split('?')[0].split('#')[0];
+    const full   = htmlDir + clean;
+    return assetsMap[full]
+      ?? assetsMap[clean]
+      ?? Object.entries(assetsMap).find(([k]) => k.endsWith('/' + clean))?.[1]
+      ?? null;
+  };
+  // src / href / poster attributes
+  let result = html.replace(
+    /\b(src|href|poster)=(["'])([^"'?#]+\.(png|jpe?g|gif|webp|ico|svg|mp4|webm|mp3|woff2?|ttf|eot))\2/gi,
+    (_m, attr, q, ref) => { const u = resolve(ref); return u ? `${attr}=${q}${u}${q}` : _m; },
+  );
+  // url() inside inlined CSS
+  result = result.replace(
+    /url\(["']?([^"')]+\.(png|jpe?g|gif|webp|ico|svg|woff2?|ttf|eot))["']?\)/gi,
+    (_m, ref) => { const u = resolve(ref); return u ? `url("${u}")` : _m; },
+  );
+  return result;
+}
+
+/**
+ * Resolve an asset href/src (relative to htmlDir) to the matching UploadFile.
+ * Returns undefined for absolute URLs (http/https/data:) — those stay as-is.
+ */
+function resolveAssetPath(htmlDir: string, ref: string, assets: UploadFile[]): UploadFile | undefined {
+  if (/^(https?:\/\/|\/\/|\/|data:)/.test(ref)) return undefined; // external / absolute — skip
+  const clean = ref.replace(/^\.\//, '').split('?')[0].split('#')[0]; // strip ./ query hash
+  // 1. Exact match: htmlDir + href  (e.g. "my-site/" + "style.css" = "my-site/style.css")
+  const full = htmlDir + clean;
+  const exact = assets.find(f => f.name === full);
+  if (exact) return exact;
+  // 2. Fallback: match by relative path alone or trailing basename
+  return assets.find(f => f.name === clean || f.name.endsWith('/' + clean));
+}
+
+/** MIME type for any static asset (used when building FormData blobs) */
+function getClientMime(filename: string): string {
+  const ext = filename.split('.').pop()?.toLowerCase() ?? '';
+  const MAP: Record<string, string> = {
+    css: 'text/css', js: 'application/javascript', mjs: 'application/javascript',
+    json: 'application/json', xml: 'application/xml', txt: 'text/plain',
+    png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg',
+    gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml', ico: 'image/x-icon',
+    woff: 'font/woff', woff2: 'font/woff2', ttf: 'font/ttf',
+    eot: 'application/vnd.ms-fontobject', otf: 'font/otf',
+    mp4: 'video/mp4', webm: 'video/webm', mp3: 'audio/mpeg',
+  };
+  return MAP[ext] || 'application/octet-stream';
+}
+
+/** Read a File as base64 string (strips the data-URL prefix) */
+function readAsBase64(file: File): Promise<string> {
+  return new Promise((res, rej) => {
+    const reader = new FileReader();
+    reader.onload  = e => res((e.target!.result as string).split(',')[1]);
+    reader.onerror = rej;
+    reader.readAsDataURL(file);
+  });
+}
 
 function parseGitUrl(url: string) {
   try {
@@ -103,27 +177,33 @@ export default function Home() {
   const router = useRouter();
   const [workers, setWorkers] = useState<WorkerData[]>([]);
   const [stats,   setStats]   = useState<DashStats>({ totalWorkers: 0, activeWorkers: 0, draftWorkers: 0 });
+  const [isFetching, setIsFetching] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [modalTab, setModalTab] = useState<'templates' | 'import'>('templates');
   const [importTab, setImportTab] = useState<ImportTab>('upload');
   const [lines, setLines] = useState<string[]>([]);
   const [isDeploying, setIsDeploying] = useState(false);
-  const [uploadedFiles, setUploadedFiles] = useState<Array<{name: string; content: string}>>([]);
+  const [uploadedFiles, setUploadedFiles] = useState<UploadFile[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [gitUrl, setGitUrl] = useState('');
   const [gitBranch, setGitBranch] = useState('');
+  // When set, deploy overwrites this existing workerName instead of creating a new one
+  const [updateTargetId, setUpdateTargetId] = useState<string | null>(null);
+  // Delete confirmation: holds the workerName pending deletion
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
 
-  const fetchWorkers = () => {
+  const fetchWorkers = () =>
     fetch('/api/workers')
       .then(res => res.json())
       .then(data => {
         if (data.workers) setWorkers(data.workers);
         if (data.stats)   setStats(data.stats);
       })
-      .catch(err => console.error("Failed to fetch workers:", err));
-  };
+      .catch(err => console.error("Failed to fetch workers:", err))
+      .finally(() => setIsFetching(false));
 
   // ── Read session from URL params (cross-origin handoff from landing page) ──
   useEffect(() => {
@@ -153,45 +233,158 @@ export default function Home() {
     setUploadedFiles([]);
     setGitUrl(''); setGitBranch('');
     setModalTab('templates');
+    setUpdateTargetId(null);
+    fetchWorkers(); // always refresh list on close
   };
 
   const handleTemplateSelect = (templateId: string) => {
     router.push(`/vibe/new?template=${templateId}`);
   };
 
+  const handleDelete = async () => {
+    if (!deleteConfirmId) return;
+    setIsDeleting(true);
+    try {
+      const res = await fetch(`/api/workers/${deleteConfirmId}`, { method: 'DELETE' });
+      if (res.ok) {
+        setDeleteConfirmId(null);
+        await fetchWorkers();
+      } else {
+        const d = await res.json();
+        alert('删除失败: ' + (d.error || '未知错误'));
+      }
+    } catch (e: unknown) {
+      alert('删除失败: ' + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   // ── Shared deploy step ───────────────────────────────────────────────────
-  const deployFiles = async (files: Array<{name: string; content: string}>) => {
-    const workerName = 'w-' + Math.random().toString(36).substring(2, 7);
+  const deployFiles = async (files: UploadFile[]) => {
+    const workerName   = updateTargetId ?? ('w-' + Math.random().toString(36).substring(2, 7));
+    const htmlFiles    = files.filter(f => /\.html?$/i.test(f.name) && f.encoding !== 'base64');
+    const binaryAssets = files.filter(f => f.encoding === 'base64'); // images / fonts
+    const textAssets   = files.filter(f => f.encoding !== 'base64' && !/\.html?$/i.test(f.name)); // CSS / JS
+
+    if (!htmlFiles.length) throw new Error('没有找到 HTML 文件，请确认上传的文件夹包含 index.html');
+
+    const mainHtml = htmlFiles.find(f => /(?:^|\/)index\.html?$/i.test(f.name)) ?? htmlFiles[0];
+    const htmlDir  = mainHtml.name.replace(/[^/]*$/, ''); // "my-site/index.html" → "my-site/"
+
+    // ── 1. Inline CSS / JS directly into each HTML file ─────────────────────
+    //    (avoids OSS ACL / CORS issues for text assets entirely)
+    if (textAssets.length > 0) {
+      setLines(prev => [...prev, `📝 内联 ${textAssets.length} 个 CSS/JS 文件...`]);
+    }
+    const processedHtmlFiles = htmlFiles.map(htmlFile => {
+      const dir = htmlFile.name.replace(/[^/]*$/, '');
+      let content = htmlFile.content;
+
+      // <link ... href="*.css" ...>  →  <style>/* css */</style>
+      content = content.replace(
+        /<link([^>]*)href=["']([^"'?#]+\.css)["']([^>]*)\/?>/gi,
+        (_m, _a, href, _b) => {
+          const f = resolveAssetPath(dir, href, textAssets);
+          return f ? `<style>\n${f.content}\n</style>` : _m;
+        },
+      );
+
+      // <script src="*.js"></script>  →  <script>/* js */</script>
+      content = content.replace(
+        /<script([^>]*)src=["']([^"'?#]+\.m?js)["']([^>]*)><\/script>/gi,
+        (_m, _a, src, _b) => {
+          const f = resolveAssetPath(dir, src, textAssets);
+          return f ? `<script>\n${f.content}\n</script>` : _m;
+        },
+      );
+
+      return { ...htmlFile, content };
+    });
+
+    // ── 2. Upload binary assets (images / fonts) to OSS ─────────────────────
+    let assetsMap: Record<string, string> = {};
+    if (binaryAssets.length > 0) {
+      setLines(prev => [...prev, `⬆ 上传 ${binaryAssets.length} 张图片到 OSS...`]);
+      const fd = new FormData();
+      fd.append('workerName', workerName);
+      for (const f of binaryAssets) {
+        const mime   = getClientMime(f.name);
+        const binary = atob(f.content);
+        const bytes  = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+        fd.append('files', new Blob([bytes], { type: mime }), f.name);
+      }
+      const uploadRes = await fetch('/api/oss-upload', { method: 'POST', body: fd });
+      if (!uploadRes.ok) {
+        const e = await uploadRes.json();
+        throw new Error(e.error || 'OSS 上传失败');
+      }
+      const uploadData = await uploadRes.json() as { files: { name: string; url: string }[] };
+      // Build map: { filePath → ossUrl }
+      for (const { name, url } of uploadData.files) {
+        assetsMap[name] = url;
+      }
+      setLines(prev => [...prev, `✓ ${binaryAssets.length} 张图片已上传至 OSS`]);
+    }
+
+    // ── 3. Rewrite binary references in HTML to absolute OSS URLs ────────────
+    const finalHtmlFiles = processedHtmlFiles.map(htmlFile => {
+      const dir = htmlFile.name.replace(/[^/]*$/, '');
+      if (Object.keys(assetsMap).length === 0) return htmlFile;
+      return { ...htmlFile, content: rewriteBinaryRefs(htmlFile.content, dir, assetsMap) };
+    });
+
+    // ── 4. Deploy processed HTML to TableStore ───────────────────────────────
     setLines(prev => [...prev, `✓ 正在推送至边缘沙箱 [${workerName}]...`]);
     const res = await fetch('/api/deploy', {
-      method: 'POST',
+      method:  'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ workerName, files }),
+      body:    JSON.stringify({ workerName, files: finalHtmlFiles }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Deploy failed');
-    setLines(prev => [...prev, '✓ 分配子域名与绑定路由...', `🚀 部署上线成功！访问地址: ${data.url}`]);
-    fetchWorkers();
+    const verb = updateTargetId ? '更新' : '部署';
+    setLines(prev => [...prev, '✓ 分配子域名与绑定路由...', `🚀 ${verb}上线成功！访问地址: ${data.url}`]);
+    await fetchWorkers();
+    setTimeout(() => {
+      setShowModal(false); setLines([]); setUploadedFiles([]);
+      setGitUrl(''); setGitBranch(''); setModalTab('templates');
+      setUpdateTargetId(null);
+    }, 2000);
   };
 
   // ── Upload mode handlers ─────────────────────────────────────────────────
   const handleFileSelect = async (fileList: FileList) => {
-    const files: Array<{name: string; content: string}> = [];
+    const files: UploadFile[] = [];
     for (const file of Array.from(fileList)) {
       const name = (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name;
       if (!ALLOWED_EXTS.test(name)) continue;
-      try { files.push({ name, content: await file.text() }); } catch { /* skip unreadable */ }
+      try {
+        if (IMAGE_EXTS.test(name)) {
+          files.push({ name, content: await readAsBase64(file), encoding: 'base64' });
+        } else {
+          files.push({ name, content: await file.text() });
+        }
+      } catch { /* skip unreadable */ }
     }
     setUploadedFiles(files);
   };
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const traverseEntry = async (entry: any, prefix: string, files: Array<{name: string; content: string}>): Promise<void> => {
+  const traverseEntry = async (entry: any, prefix: string, files: UploadFile[]): Promise<void> => {
     if (entry.isFile) {
       const name = prefix + entry.name;
       if (!ALLOWED_EXTS.test(name)) return;
-      const content: string = await new Promise((res, rej) => entry.file((f: File) => f.text().then(res).catch(rej)));
-      files.push({ name, content });
+      if (IMAGE_EXTS.test(name)) {
+        const content: string = await new Promise((res, rej) =>
+          entry.file((f: File) => readAsBase64(f).then(res).catch(rej))
+        );
+        files.push({ name, content, encoding: 'base64' });
+      } else {
+        const content: string = await new Promise((res, rej) => entry.file((f: File) => f.text().then(res).catch(rej)));
+        files.push({ name, content });
+      }
     } else if (entry.isDirectory) {
       const reader = entry.createReader();
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -204,7 +397,7 @@ export default function Home() {
     e.preventDefault(); setIsDragging(false);
     const items = e.dataTransfer.items;
     if (!items) { handleFileSelect(e.dataTransfer.files); return; }
-    const files: Array<{name: string; content: string}> = [];
+    const files: UploadFile[] = [];
     await Promise.all(Array.from(items).map(async item => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const entry = (item as any).webkitGetAsEntry?.();
@@ -278,47 +471,81 @@ export default function Home() {
       </div>
 
       <h2 className="animate-fade-in" style={{ animationDelay: '0.6s', marginTop: 48, marginBottom: 24 }}>我的项目</h2>
+      {isFetching ? (
+        <div className="animate-pulse" style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-secondary)', background: 'rgba(255,255,255,0.03)', borderRadius: '12px' }}>
+          ⏳ 数据从云端加载中，请稍候...
+        </div>
+      ) : (
       <div className={styles.workersGrid}>
         {workers.map((worker, i) => {
           const isDraft = worker.status === 'draft';
-          const href    = isDraft ? `/vibe/${worker.id}` : `/workers/${worker.id}`;
+          const vibeHref = `/vibe/${worker.id}`;
           return (
-            <Link href={href} key={worker.id} style={{ display: 'block' }}>
-              <div
-                className={`glass-card animate-fade-in ${isDraft ? styles.draftCard : ''}`}
-                style={{ animationDelay: `${0.7 + i * 0.1}s`, height: '100%' }}
-              >
-                <div className={styles.workerHeader}>
-                  <h3>{worker.name}</h3>
-                  {isDraft
-                    ? <span className={styles.draftBadge}>草稿</span>
-                    : <span className={styles.activeBadge}>已发布</span>}
-                </div>
-                <span className={styles.workerUrl}>
-                  {isDraft
-                    ? (worker.templateId
-                        ? `模板：${TEMPLATES.find(t => t.id === worker.templateId)?.name ?? worker.templateId}`
-                        : '空白项目')
-                    : worker.url}
-                </span>
-                <div className={styles.workerStatus}>
-                  {isDraft ? (
-                    <span className={styles.editHint}>✏️ 点击继续编辑</span>
-                  ) : (
-                    <>
-                      <span className={`status-dot ${worker.status}`}></span>
-                      <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>运行中</span>
-                    </>
-                  )}
-                  <span style={{ marginLeft: 'auto', fontSize: '0.78rem', color: 'var(--text-secondary)', opacity: 0.6 }}>
-                    {relativeTime(worker.updatedAt || worker.deployedAt)}
-                  </span>
-                </div>
+            <div
+              key={worker.id}
+              className={`glass-card animate-fade-in ${isDraft ? styles.draftCard : ''}`}
+              style={{ animationDelay: `${0.7 + i * 0.1}s`, cursor: 'pointer' }}
+              onClick={() => router.push(vibeHref)}
+            >
+              <div className={styles.workerHeader}>
+                <h3>{worker.name}</h3>
+                {isDraft
+                  ? <span className={styles.draftBadge}>草稿</span>
+                  : <span className={styles.activeBadge}>已发布</span>}
               </div>
-            </Link>
+              <span className={styles.workerUrl}>
+                {isDraft
+                  ? (worker.templateId
+                      ? `模板：${TEMPLATES.find(t => t.id === worker.templateId)?.name ?? worker.templateId}`
+                      : '空白项目')
+                  : worker.url}
+              </span>
+              <div className={styles.workerStatus}>
+                {isDraft ? (
+                  <span className={styles.editHint}>✏️ 点击继续编辑</span>
+                ) : (
+                  <>
+                    <span className={`status-dot ${worker.status}`}></span>
+                    <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>运行中</span>
+                  </>
+                )}
+                <span style={{ marginLeft: 'auto', fontSize: '0.78rem', color: 'var(--text-secondary)', opacity: 0.6 }}>
+                  {relativeTime(worker.updatedAt || worker.deployedAt)}
+                </span>
+              </div>
+              {/* Action buttons — stopPropagation so they don't navigate */}
+              <div className={styles.cardActions} onClick={e => e.stopPropagation()}>
+                {!isDraft && (
+                  <a href={worker.url} target="_blank" rel="noreferrer" className={styles.cardBtn}>
+                    🌐 访问
+                  </a>
+                )}
+                <Link href={vibeHref} className={styles.cardBtn}>✏️ 编辑</Link>
+                <button
+                  className={styles.cardBtn}
+                  onClick={() => {
+                    setUpdateTargetId(worker.id);
+                    setModalTab('import');
+                    setImportTab('upload');
+                    setLines([]);
+                    setUploadedFiles([]);
+                    setShowModal(true);
+                  }}
+                >
+                  🔄 更新
+                </button>
+                <button
+                  className={`${styles.cardBtn} ${styles.cardBtnDanger}`}
+                  onClick={() => setDeleteConfirmId(worker.id)}
+                >
+                  🗑 删除
+                </button>
+              </div>
+            </div>
           );
         })}
       </div>
+      )}
 
       {showModal && (
         <div className={styles.modalOverlay} onClick={closeModal}>
@@ -326,23 +553,25 @@ export default function Home() {
 
             {/* Header */}
             <div className={styles.modalHeader}>
-              <h2>✨ 新建 Worker</h2>
+              <h2>{updateTargetId ? `🔄 更新项目` : '✨ 新建 Worker'}</h2>
               <button className={styles.modalClose} onClick={closeModal}>&times;</button>
             </div>
 
-            {/* 顶级 Tab：模板 / 导入 */}
-            <div className={styles.importTabs}>
-              <button
-                className={`${styles.importTab} ${modalTab === 'templates' ? styles.importTabActive : ''}`}
-                onClick={() => setModalTab('templates')}>
-                🎨 从模板创建
-              </button>
-              <button
-                className={`${styles.importTab} ${modalTab === 'import' ? styles.importTabActive : ''}`}
-                onClick={() => setModalTab('import')}>
-                📦 导入项目
-              </button>
-            </div>
+            {/* 顶级 Tab：更新模式只显示导入，新建模式显示全部 */}
+            {!updateTargetId && (
+              <div className={styles.importTabs}>
+                <button
+                  className={`${styles.importTab} ${modalTab === 'templates' ? styles.importTabActive : ''}`}
+                  onClick={() => setModalTab('templates')}>
+                  🎨 从模板创建
+                </button>
+                <button
+                  className={`${styles.importTab} ${modalTab === 'import' ? styles.importTabActive : ''}`}
+                  onClick={() => setModalTab('import')}>
+                  📦 导入项目
+                </button>
+              </div>
+            )}
 
             {/* ── 模板画廊 ── */}
             {modalTab === 'templates' && (
@@ -358,7 +587,7 @@ export default function Home() {
             )}
 
             {/* ── 导入项目 ── */}
-            {modalTab === 'import' && (
+            {(modalTab === 'import' || updateTargetId) && (
               <>
                 <div className={styles.modeSelector}>
                   <button
@@ -455,6 +684,36 @@ export default function Home() {
               </>
             )}
 
+          </div>
+        </div>
+      )}
+
+      {/* ── Delete confirmation modal ─────────────────────────────────────── */}
+      {deleteConfirmId && (
+        <div className={styles.modalOverlay} onClick={() => !isDeleting && setDeleteConfirmId(null)}>
+          <div className={styles.confirmBox} onClick={e => e.stopPropagation()}>
+            <div className={styles.confirmIcon}>🗑</div>
+            <h3>确认删除</h3>
+            <p>
+              确定要删除项目 <strong>{deleteConfirmId}</strong> 吗？
+              <br />此操作不可撤销。
+            </p>
+            <div className={styles.confirmActions}>
+              <button
+                className="btn-secondary"
+                onClick={() => setDeleteConfirmId(null)}
+                disabled={isDeleting}
+              >
+                取消
+              </button>
+              <button
+                className={styles.confirmDeleteBtn}
+                onClick={handleDelete}
+                disabled={isDeleting}
+              >
+                {isDeleting ? '删除中...' : '确认删除'}
+              </button>
+            </div>
           </div>
         </div>
       )}
