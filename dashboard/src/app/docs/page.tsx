@@ -6,6 +6,19 @@ import styles from './page.module.css';
 export default function DocsPage() {
   const [activeTab, setActiveTab] = useState<'api' | 'cli'>('api');
   const [token, setToken] = useState<string>('');
+  const [showToken, setShowToken] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const handleTokenClick = () => {
+    if (!token) return;
+    navigator.clipboard.writeText(token);
+    setShowToken(true);
+    setCopied(true);
+    setTimeout(() => {
+      setShowToken(false);
+      setCopied(false);
+    }, 3000);
+  };
 
   useEffect(() => {
     try {
@@ -28,8 +41,15 @@ export default function DocsPage() {
         <span>🔑</span>
         <div>
           <p><strong>您的个人访问令牌 (Access Token)</strong><br />在调用接口或执行 CLI 操作时，请在 Header 中附加此 Token 以进行身份验证。</p>
-          <div className={styles.tokenBox}>
-            {token ? token : '未检测到登录状态，请先在控制台主页登录。'}
+          <div 
+            className={styles.tokenBox} 
+            onClick={handleTokenClick}
+            style={{ cursor: token ? 'pointer' : 'default', position: 'relative' }}
+          >
+            {token 
+              ? (showToken ? token : '•••••••••••••••••••••••••••••••••••••••••••••• (点击查看并复制)') 
+              : '未检测到登录状态，请先在控制台主页登录。'}
+            {copied && <span style={{ position: 'absolute', right: 12, top: 12, background: '#10b981', color: '#fff', padding: '2px 8px', borderRadius: 4, fontSize: '0.8rem' }}>已复制</span>}
           </div>
         </div>
       </div>

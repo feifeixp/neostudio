@@ -71,6 +71,25 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
+  const tsClient = buildTSClient();
+
+  if (tsClient) {
+    try {
+      const TABLE_NAME = (process.env.TABLESTORE_ROUTER_TABLE || 'router_table').trim();
+      await new Promise((resolve, reject) => {
+        tsClient.deleteRow({
+          tableName: TABLE_NAME,
+          condition: new TableStore.Condition(TableStore.RowExistenceExpectation.IGNORE, null),
+          primaryKey: [{ workerName: id }],
+        }, (err: any, data: any) => err ? reject(err) : resolve(data));
+      });
+      return NextResponse.json({ success: true, message: `Worker "${id}" deleted` });
+    } catch (err: any) {
+      return NextResponse.json({ error: err.message }, { status: 500 });
+    }
+  }
+
+  // ── Local dev: deploy-pipeline ──
   try {
     const res = await fetch(`${PIPELINE_URL}/workers/${encodeURIComponent(id)}`, {
       method: 'DELETE',
