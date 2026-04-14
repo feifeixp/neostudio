@@ -118,9 +118,10 @@ export default function VibePage({ params }: { params: Promise<{ id: string }> }
     fetch(`/api/workers/${workerId}`)
       .then(r => r.json())
       .then((d) => {
-        if (d.content) {
-          setCode(d.content);
-          setPreviewSrc(d.content);
+        const content = d.worker?.content || d.content;
+        if (content) {
+          setCode(content);
+          setPreviewSrc(content);
           setMessages([{ role: 'ai', text: `👋 项目「${workerId}」已加载，继续和我聊聊你想怎么改进吧！` }]);
         } else {
           setMessages([{ role: 'ai', text: `👋 已就绪，开始编辑「${workerId}」吧！` }]);
