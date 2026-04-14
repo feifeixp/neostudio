@@ -72,7 +72,7 @@ export default function DocsPage() {
       {activeTab === 'api' && (
         <div className={styles.contentArea}>
           <h2>🌐 REST API 参考录</h2>
-          <p style={{marginBottom: 20, color: 'var(--text-secondary)'}}>所有接口 URL Base: <code>https://story.neodomain.cn</code></p>
+          <p style={{marginBottom: 20, color: 'var(--text-secondary)'}}>所有接口 URL Base: <code>https://dev.neodomain.cn</code></p>
           
           <div className={styles.section}>
             <h3>1. AI 视频生成</h3>
