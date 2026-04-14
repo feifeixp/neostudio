@@ -72,10 +72,8 @@ export default function VibePage({ params }: { params: Promise<{ id: string }> }
   const templateId   = searchParams.get('template') ?? 'blank';
   const isNew        = id === 'new';
 
-  // Stable worker ID: generate once if new
-  const [workerId] = useState(() =>
-    isNew ? 'w-' + Math.random().toString(36).slice(2, 7) : id,
-  );
+  // Stable worker ID: generate on client side if new to avoid hydration mismatch
+  const [workerId, setWorkerId] = useState(() => isNew ? '' : id);
 
   const [code, setCode]   = useState(() => getTemplateById(templateId).html);
   const [loaded, setLoaded] = useState(isNew); // new projects start as "loaded"
@@ -111,8 +109,9 @@ export default function VibePage({ params }: { params: Promise<{ id: string }> }
   // ── Load existing project (when id !== 'new') ─────────────────────────────
   useEffect(() => {
     if (isNew) {
-      // Save draft immediately for new projects
-      saveDraft(workerId, templateId, code);
+      const newId = 'w-' + Math.random().toString(36).slice(2, 7);
+      setWorkerId(newId);
+      saveDraft(newId, templateId, code);
       return;
     }
     fetch(`/api/workers/${workerId}`)
@@ -137,6 +136,7 @@ export default function VibePage({ params }: { params: Promise<{ id: string }> }
 
   // ── Save draft helper ──────────────────────────────────────────────────────
   const saveDraft = useCallback(async (wid: string, tid: string, html: string) => {
+    if (!wid) return;
     setSaveStatus('saving');
     try {
       await fetch('/api/draft', {
