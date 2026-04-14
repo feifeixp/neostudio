@@ -1,7 +1,78 @@
+diff --git a/node_modules/tablestore/lib/filter.js b/node_modules/tablestore/lib/filter.js
+index 9c8b61f..bd135ca 100644
+--- a/node_modules/tablestore/lib/filter.js
++++ b/node_modules/tablestore/lib/filter.js
+@@ -57,7 +57,7 @@ TableStore.CompositeCondition = inherit(TableStore.ColumnCondition, {
+         return combinator;
+     },
+     addSubCondition: function (condition) {
+-        if (!condition instanceof TableStore.ColumnCondition) {
++        if (!(condition instanceof TableStore.ColumnCondition)) {
+             throw new Error("The input condition should be an instance of TableStore.ColumnCondition");
+         }
+ 
+@@ -183,7 +183,7 @@ TableStore.Condition = inherit({
+     },
+ 
+     setColumnCondition: function (columnCondition) {
+-        if (!columnCondition instanceof TableStore.ColumnCondition) {
++        if (!(columnCondition instanceof TableStore.ColumnCondition)) {
+             throw new Error("The input columnCondition should be an instance of TableStore.ColumnCondition");
+         }
+         this.columnCondition = columnCondition;
+diff --git a/node_modules/tablestore/lib/protocol/encoder.js b/node_modules/tablestore/lib/protocol/encoder.js
+index 2c16c8a..9c4ca04 100644
+--- a/node_modules/tablestore/lib/protocol/encoder.js
++++ b/node_modules/tablestore/lib/protocol/encoder.js
+@@ -454,7 +454,7 @@ TableStore.encoder = {
+             return;
+         }
+ 
+-        if (!column_condition instanceof TableStore.ColumnCondition) {
++        if (!(column_condition instanceof TableStore.ColumnCondition)) {
+             throw new Error("column condition should be an instance of ColumnCondition");
+         }
+ 
+@@ -523,13 +523,13 @@ TableStore.encoder = {
+         var writer = tsFilterProtos.ColumnPaginationFilter.encode(proto);
+         return writer.finish();
+     },
+-    _makeCondition: function (proto, condition) {
+-        if (!condition instanceof TableStore.Condition) {
++    _makeCondition: function (conditionObj, condition) {
++        if (!(condition instanceof TableStore.Condition)) {
+             throw new Error("condition should be an instance of TableStore.Condition");
+         }
+ 
+-        proto.rowExistence = condition.rowExistenceExpectation;
+-        if (proto.rowExistence === undefined || proto.rowExistence === null) {
++        conditionObj.rowExistence = condition.rowExistenceExpectation;
++        if (conditionObj.rowExistence === undefined || conditionObj.rowExistence === null) {
+             throw new Error("rowExistenceExpectation should be one of TableStore.RowExistenceExpectation");
+         }
+ 
+@@ -539,7 +539,7 @@ TableStore.encoder = {
+             var pbFilter = tsFilterProtos.Filter.create(properties);
+             var filterWriter = tsFilterProtos.Filter.encode(pbFilter);
+             
+-            proto.columnCondition = filterWriter.finish();
++            conditionObj.columnCondition = filterWriter.finish();
+         }
+     },
+     encodeListSearchIndex: function (params) {
 diff --git a/node_modules/tablestore/lib/protocol/plian_buffer_builder.js b/node_modules/tablestore/lib/protocol/plian_buffer_builder.js
-index d9e6119..da53117 100644
+index d9e6119..6e3888c 100644
 --- a/node_modules/tablestore/lib/protocol/plian_buffer_builder.js
 +++ b/node_modules/tablestore/lib/protocol/plian_buffer_builder.js
+@@ -59,7 +59,7 @@ TableStore.PlainBufferBuilder = {
+         return size;
+     },
+ 
+-    computeVariantValueSize: function (columnValue) {
++    computeColumnVariantValueSize: function (columnValue) {
+         return this.computeColumnValueSize(columnValue) - TableStore.plainBufferConsts.LITTLE_ENDIAN_32_SIZE - 1;
+     },
+ 
 @@ -91,7 +91,7 @@ TableStore.PlainBufferBuilder = {
      computePrimaryKeySize: function (primaryKeys) {
          var size = 1;
@@ -11,3 +82,21 @@ index d9e6119..da53117 100644
                  size += this.computePrimaryKeyColumnSize(key, primaryKeys[i][key]);
              }
          }
+@@ -130,7 +130,7 @@ TableStore.PlainBufferBuilder = {
+             for (var i = 0; i < attributeColumns.length; i++) {
+                 for (var updateType in attributeColumns[i]) {
+                     var columns = attributeColumns[i][updateType];
+-                    if (!columns instanceof Array) {
++                    if (!(columns instanceof Array)) {
+                         throw new Error("Unsupported column type:" + typeof (columns));
+                     }
+                     for (var obj in columns) {
+@@ -173,7 +173,7 @@ TableStore.PlainBufferBuilder = {
+     },
+ 
+     serializeColumnValue: function (value) {
+-        var bufSize = this.computeVariantValueSize(value);
++        var bufSize = this.computeColumnVariantValueSize(value);
+         var stream = new TableStore.PlainBufferOutputStream(bufSize);
+         var coded_stream = new TableStore.PlainBufferCodedOutputStream(stream);
+ 
