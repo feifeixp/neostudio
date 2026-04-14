@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 
 interface Session {
   nickname?: string;
@@ -107,6 +108,8 @@ export default function UserMenu() {
                 </div>
               </div>
               <div className="user-dropdown-divider" />
+              <Link href="/account" className="user-dropdown-item" onClick={() => setOpen(false)} style={{ display: 'block', textDecoration: 'none' }}>账户中心</Link>
+              <Link href="/logs" className="user-dropdown-item" onClick={() => setOpen(false)} style={{ display: 'block', textDecoration: 'none' }}>监控日志</Link>
               <button className="user-dropdown-item" onClick={handleLogout}>
                 退出账号
               </button>

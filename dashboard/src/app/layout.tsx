@@ -29,8 +29,8 @@ export default function RootLayout({
               <div className="nav-links">
                 <Link href="/" className="active">总览</Link>
                 <Link href="/docs">开发者文档</Link>
-                <a href="#">监控日志</a>
-                <a href="#">账户中心</a>
+                <Link href="/logs">监控日志</Link>
+                <Link href="/account">账户中心</Link>
               </div>
               <div className="user-profile">
                 <UserMenu />
