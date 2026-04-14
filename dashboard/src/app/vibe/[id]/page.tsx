@@ -43,6 +43,28 @@ const MONACO_OPTIONS = {
 interface ChatMessage { role: 'user' | 'ai' | 'status' | 'plan'; text: string; }
 type SaveStatus = 'saved' | 'saving' | 'unsaved';
 
+interface UploadedFile {
+  name: string;
+  content: string;  // base64
+  encoding: 'base64';
+  dataUrl: string;  // for local preview (data:image/...;base64,...)
+}
+
+const IMAGE_EXTS = /\.(png|jpe?g|gif|webp|svg|ico)$/i;
+
+/** Replace src="filename.ext" with inline data URLs for local preview */
+function resolveImagesForPreview(html: string, files: UploadedFile[]): string {
+  let result = html;
+  for (const f of files) {
+    const escaped = f.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    result = result.replace(
+      new RegExp(`(src=["'])${escaped}(["'])`, 'g'),
+      `$1${f.dataUrl}$2`,
+    );
+  }
+  return result;
+}
+
 export default function VibePage({ params }: { params: Promise<{ id: string }> }) {
   const { id }       = use(params);
   const router       = useRouter();
@@ -67,13 +89,15 @@ export default function VibePage({ params }: { params: Promise<{ id: string }> }
   const [rightTab,     setRightTab]     = useState<'code' | 'preview'>('preview');
   const [previewSrc,   setPreviewSrc]   = useState(() => isNew ? getTemplateById(templateId).html : '');
   const [codeChanged,  setCodeChanged]  = useState(false);
-  const [publishing,   setPublishing]   = useState(false);
-  const [publishedUrl, setPublishedUrl] = useState('');
-  const [saveStatus,   setSaveStatus]   = useState<SaveStatus>('saved');
+  const [publishing,    setPublishing]    = useState(false);
+  const [publishedUrl,  setPublishedUrl]  = useState('');
+  const [saveStatus,    setSaveStatus]    = useState<SaveStatus>('saved');
+  const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
 
   const msgEndRef    = useRef<HTMLDivElement>(null);
   const historyRef   = useRef<Array<{ role: string; content: string }>>([]);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // ── Full-screen: hide layout nav & padding ────────────────────────────────
   useEffect(() => {
@@ -139,6 +163,29 @@ export default function VibePage({ params }: { params: Promise<{ id: string }> }
 
   const addMsg = useCallback((msg: ChatMessage) =>
     setMessages(prev => [...prev, msg]), []);
+
+  // ── Image file upload ────────────────────────────────────────────────────
+  const handleFileUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const selected = Array.from(e.target.files ?? []).filter(f => IMAGE_EXTS.test(f.name));
+    if (!selected.length) return;
+    selected.forEach(file => {
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        const dataUrl = ev.target?.result as string;
+        // dataUrl = "data:image/png;base64,XXXX"
+        const base64 = dataUrl.split(',')[1];
+        setUploadedFiles(prev => {
+          // Replace if same name already uploaded
+          const filtered = prev.filter(f => f.name !== file.name);
+          return [...filtered, { name: file.name, content: base64, encoding: 'base64', dataUrl }];
+        });
+        addMsg({ role: 'ai', text: `📎 已上传「${file.name}」，在 HTML 中用 <img src="${file.name}"> 引用它。` });
+      };
+      reader.readAsDataURL(file);
+    });
+    // Reset input so same file can be re-uploaded
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  }, [addMsg]);
 
   // ── Send chat message to AI ─────────────────────────────────────────────
   const handleSend = useCallback(async () => {
@@ -211,30 +258,57 @@ export default function VibePage({ params }: { params: Promise<{ id: string }> }
     }
   }, [input, isStreaming, code, addMsg]);
 
-  // ── Show preview ────────────────────────────────────────────────────────
+  // ── Show preview (inline images so they render locally) ─────────────────
   const showPreview = useCallback(() => {
-    setPreviewSrc(code);
+    const resolved = uploadedFiles.length > 0 ? resolveImagesForPreview(code, uploadedFiles) : code;
+    setPreviewSrc(resolved);
     setCodeChanged(false);
     setRightTab('preview');
-  }, [code]);
+  }, [code, uploadedFiles]);
 
   // ── Publish ─────────────────────────────────────────────────────────────
   const handlePublish = useCallback(async () => {
     setPublishing(true);
-    // Flush any pending auto-save before publishing
     if (saveTimerRef.current) { clearTimeout(saveTimerRef.current); saveTimerRef.current = null; }
     try {
+      const assets: Record<string, string> = {};
+
+      // 1. Upload images via CF Worker → OSS (FormData, no CORS, no base64)
+      if (uploadedFiles.length > 0) {
+        addMsg({ role: 'ai', text: `⬆ 上传 ${uploadedFiles.length} 张图片到 OSS...` });
+        const fd = new FormData();
+        fd.append('workerName', workerId);
+        for (const f of uploadedFiles) {
+          const binary = atob(f.content);
+          const bytes  = new Uint8Array(binary.length);
+          for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+          const mime = f.dataUrl.split(';')[0].replace('data:', '') || 'image/png';
+          fd.append('files', new Blob([bytes], { type: mime }), f.name);
+        }
+        const uploadRes = await fetch('/api/oss-upload', { method: 'POST', body: fd });
+        if (!uploadRes.ok) {
+          const e = await uploadRes.json();
+          throw new Error(e.error || 'OSS upload failed');
+        }
+        const { files: uploaded } = await uploadRes.json() as { files: Array<{ name: string; url: string }> };
+        for (const { name, url } of uploaded) assets[name] = url;
+      }
+
+      // 2. Deploy HTML + asset map
       const res = await fetch('/api/deploy', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ workerName: workerId, files: [{ name: 'index.html', content: code }] }),
+        body:    JSON.stringify({
+          workerName: workerId,
+          files: [{ name: 'index.html', content: code }],
+          assets,
+        }),
       });
       const d = await res.json();
       if (res.ok) {
         setPublishedUrl(d.url);
         setSaveStatus('saved');
         addMsg({ role: 'ai', text: `✅ 已发布上线！访问地址：${d.url}` });
-        // Navigate back to home after 1.5 s so user sees the card update
         setTimeout(() => router.push('/'), 1500);
       } else {
         addMsg({ role: 'ai', text: '❌ 发布失败：' + (d.error || '未知错误') });
@@ -242,7 +316,7 @@ export default function VibePage({ params }: { params: Promise<{ id: string }> }
     } catch (e: unknown) {
       addMsg({ role: 'ai', text: '❌ 发布异常：' + (e instanceof Error ? e.message : String(e)) });
     } finally { setPublishing(false); }
-  }, [workerId, code, addMsg, router]);
+  }, [workerId, code, uploadedFiles, addMsg, router]);
 
   return (
     <div className={styles.page}>
@@ -290,6 +364,22 @@ export default function VibePage({ params }: { params: Promise<{ id: string }> }
           <div ref={msgEndRef} />
         </div>
         <div className={styles.chatInput}>
+          {/* Uploaded files list */}
+          {uploadedFiles.length > 0 && (
+            <div className={styles.uploadedFiles}>
+              {uploadedFiles.map(f => (
+                <span key={f.name} className={styles.uploadedFileTag} title={f.name}>
+                  <img src={f.dataUrl} alt="" className={styles.uploadedFileThumb} />
+                  {f.name}
+                  <button
+                    className={styles.uploadedFileRemove}
+                    onClick={() => setUploadedFiles(prev => prev.filter(x => x.name !== f.name))}
+                    title="移除"
+                  >×</button>
+                </span>
+              ))}
+            </div>
+          )}
           <div className={styles.chatInputRow}>
             <textarea
               className={styles.chatTextarea}
@@ -304,7 +394,24 @@ export default function VibePage({ params }: { params: Promise<{ id: string }> }
               {isStreaming ? '...' : '发送'}
             </button>
           </div>
-          <span className={styles.chatHint}>Enter 发送 · Shift+Enter 换行</span>
+          <div className={styles.chatInputActions}>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              multiple
+              style={{ display: 'none' }}
+              onChange={handleFileUpload}
+            />
+            <button
+              className={styles.uploadBtn}
+              onClick={() => fileInputRef.current?.click()}
+              title="上传图片（PNG / JPG / GIF / WebP）"
+            >
+              📎 上传图片
+            </button>
+            <span className={styles.chatHint}>Enter 发送 · Shift+Enter 换行</span>
+          </div>
         </div>
       </aside>
 
@@ -334,7 +441,7 @@ export default function VibePage({ params }: { params: Promise<{ id: string }> }
         {rightTab === 'preview' && (
           <div className={styles.previewWrap}>
             {previewSrc
-              ? <iframe className={styles.previewIframe} srcDoc={previewSrc} sandbox="allow-scripts allow-forms" title="preview" />
+              ? <iframe className={styles.previewIframe} srcDoc={previewSrc} sandbox="allow-scripts allow-forms allow-same-origin allow-modals allow-popups" title="preview" />
               : <div className={styles.previewPlaceholder}><span>点击「👁 预览」标签加载页面</span><button onClick={showPreview}>加载预览</button></div>
             }
           </div>
