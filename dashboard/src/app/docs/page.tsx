@@ -140,23 +140,6 @@ npx neodomain-cli image generate \\
               您可以直接把本工程根目录下的 <code>neodomain-cli/AI_MANUAL.md</code> 喂给您的 AI，它会自动学会如何帮您操作平台。
             </p>
           </div>
-
-          <div className={styles.section}>
-            <h3>DevOps 全栈发布部署架构与指令</h3>
-            <p style={{color: 'var(--text-secondary)', fontSize: '0.9rem', lineHeight: '1.6', marginBottom: 12}}>
-              本平台当前架构由边缘服务、代理与云函数三方面构成。通过以下标准化指令可迅速完成构建及部署：
-            </p>
-            <pre className={styles.codeBlock}>
-{`# 1. Dashboard UI 平台 (Cloudflare Pages)
-cd dashboard && npm run deploy:cf
-
-# 2. API 统一网关层 (Cloudflare CF Proxy)
-cd cf-proxy && npx wrangler deploy
-
-# 3. 后端业务与代理运行时 (Aliyun FC)
-cd worker-runtime && npm run deploy`}
-            </pre>
-          </div>
         </div>
       )}
 

@@ -113,6 +113,23 @@ cd router-function && s deploy
 # Set FC_ACCOUNT_ID in router-function/.env after cloud deploy
 ```
 
+## Standard DevOps Deployment Pipeline (Neowow Ai Studio)
+
+Here is the standardized workflow to deploy the three core modules of this platform:
+
+```bash
+# 1. Dashboard UI Platform (Cloudflare Pages)
+cd dashboard && npm run deploy:cf
+
+# 2. Global CF Proxy (Cloudflare Workers)
+# NOTE: Make sure to copy landing/index.html to cf-proxy/src/landing.html before deploying
+# if you edited the landing page, since the proxy workers serve it locally.
+cd cf-proxy && npx wrangler deploy
+
+# 3. Backend Runtime Worker (Aliyun FC)
+cd worker-runtime && npm run deploy
+```
+
 ## Alibaba Cloud Resources
 
 | Resource             | Value                                             |
