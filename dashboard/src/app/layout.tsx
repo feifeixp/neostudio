@@ -7,8 +7,8 @@ import './globals.css';
 const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
-  title: 'Worker Platform - 边缘计算控制台',
-  description: '全托管 Serverless 平台',
+  title: 'Neowow Ai Studio',
+  description: 'Neowow Ai Studio',
 };
 
 export default function RootLayout({
@@ -24,7 +24,7 @@ export default function RootLayout({
             <div className="nav-container">
               <div className="logo">
                 <div className="logo-icon"></div>
-                <span>Serverless 平台</span>
+                <span>Neowow Ai Studio</span>
               </div>
               <div className="nav-links">
                 <Link href="/" className="active">总览</Link>
